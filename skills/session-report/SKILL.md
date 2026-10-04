@@ -45,7 +45,9 @@ ls -lt ~/.claude/projects/$(pwd | sed 's#[/.]#-#g')/*.jsonl | head
    ```
 
    This writes `reports/sessions/<session-id>.report.html` and prints a one-line
-   summary (events, agent runs, issues caught, errors).
+   summary (events, agent runs, issues caught, errors). If the user wants the
+   models, effort and Claude Code version as data, add `--summary`: it prints
+   one JSON object instead (shape in the README).
 
 2. Give the user the report path (offer `--open` to open it in a browser) and
    relay the printed summary line. Reports are meant to be committed with the
@@ -66,7 +68,7 @@ read / are helping or hindering:
   score, never-read / read-but-never-cited flags, reviewer catches attributed to
   the doc they cite, and a **Value/1K** (influence per 1000 tokens) signal-density
   score that flags large-but-rarely-used docs as `wordy / low-signal?`. The
-  **Subagent value** table also shows **which model** each agent ran. Point them
+  **Subagent value** table also shows **which model and effort** each agent ran. Point them
   there first.
 - "Helping vs hindering" is a causal question that needs a counterfactual, not a
   single run. Recommend an **ablation**: run the same use case with vs without

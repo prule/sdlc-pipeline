@@ -5,6 +5,13 @@ input: <use-cases/UC-n-<slug>.md>
 branch: <git branch>
 outcome: archived | stopped-at-gate-1 | stopped-at-gate-2 | escalated | aborted
 agent_runs: <n>
+# What actually ran, copied from the session report's --summary. Full model IDs; a value that
+# differs across runs is a comma-separated list, quoted ("a, b"); "unknown" where Claude Code
+# recorded nothing.
+claude_code: <version>
+orchestrator: {model: <model id>, effort: <effort>}
+agents:
+  <agent>: {model: <model id>, effort: <effort>, runs: <n>}
 session: <session id>
 session_report: reports/sessions/<session id>.report.html
 ---

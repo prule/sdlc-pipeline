@@ -3,6 +3,20 @@
 All notable changes to this plugin. Versions follow [semver](https://semver.org/); before 1.0, a
 change that requires projects to edit their profile bumps the minor version.
 
+## [0.2.0] — 2026-10-04
+
+Records what actually ran. Agent frontmatter says `model: opus`, but that's an alias. Runs have
+used other models, and transcripts are eventually deleted. Host projects need do nothing.
+
+### Added
+- `session-report` shows the effort each agent ran next to its model, and every Claude Code version
+  the session used. Effort is as recorded by Claude Code, or `unknown`.
+- `session-report --summary` prints one JSON object with the session id, report path, Claude Code
+  version, and the model, effort and runs of the orchestrator and each agent type.
+- Retrospectives record `claude_code`, `orchestrator` and `agents` (model, effort and runs) in their
+  front matter. `build-use-case` fills them from `--summary`, even when a project's own
+  `retrospectives/TEMPLATE.md` predates the fields.
+
 ## [0.1.0] — 2026-10-04
 
 First release. Extracted from the `.claude/` folder of

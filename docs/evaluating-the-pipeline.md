@@ -109,7 +109,7 @@ question:
 | **Summary cards** | Scale & cost of the run | — |
 | **Insights** | Auto-generated callouts | Read these first; they flag the obvious wins and smells |
 | **Agent timeline** (Gantt) | *When* each agent ran, how long, overlaps | Work is progressing, not stalled; parallel where possible |
-| **Subagent value & efficiency** | Q1 — who does the work, who catches issues, at what cost, and **which model each agent ran** | Producers do most tool calls/files; gates are cheaper but catch things; every agent on the configured model (opus) — a cheaper model on a long-running producer can cost more, not less, by needing more turns |
+| **Subagent value & efficiency** | Q1 — who does the work, who catches issues, at what cost, and **which model and effort each agent ran** | Producers do most tool calls/files; gates are cheaper but catch things; every agent on the configured model (opus) — a cheaper model on a long-running producer can cost more, not less, by needing more turns |
 | **Review-gate value** | Q2 — what each reviewer actually caught | Gates with real, specific findings (not rubber-stamps) |
 | **Errors & friction** | Where the run stumbled | Few command errors; few rejected tool calls |
 | **Tool usage** | Where time/effort went per tool | No single tool dominating unexpectedly |
@@ -254,6 +254,12 @@ tell you *where* to look, the reports tell you *why*.
 | **Read cost** (per doc) | reads × size (tokens) | Lower for equal value = cheaper context |
 | **Catches citing a doc** | Gate findings that name the doc | Higher = doc demonstrably useful |
 | **Model** (per agent) | model that produced the agent's messages | Should be the configured model (opus); judge a cheaper one by cost per finished change, not per token |
+| **Effort** (per agent) | effort level Claude Code recorded on the agent's messages | Should be the same across runs you compare; `unknown` means nothing was recorded |
+
+Every retrospective records the model, effort and Claude Code version per agent in its front
+matter, so you can compare across runs without the transcripts: `grep -h 'junior-dev:'
+retrospectives/*.md`. Compare runs only when these match, or when the difference is the thing
+you're testing.
 
 ---
 
@@ -273,8 +279,9 @@ Skim these on any run:
 - [ ] **Errors clustered in one tool** → an environment or instruction problem.
 - [ ] A **large doc with low Value/1K** (`wordy / low-signal?`) → trim it and
       `--compare` to confirm nothing regresses.
-- [ ] An **agent on an unexpected model** (anything other than the configured opus)
-      → check the agent's config.
+- [ ] An **agent on an unexpected model or effort** (anything other than the configured
+      opus, or an effort that differs from earlier runs) → check the agent's config and the
+      session's `/model` and `/effort` settings.
 
 ---
 
