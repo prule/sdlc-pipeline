@@ -6,12 +6,14 @@ self-contained HTML report focused on pipeline efficiency.
 Usage:
     python3 session_report.py <session.jsonl> [-o report.html] [--out-dir DIR]
                               [--context-dirs domain,standards] [--compact] [--open]
+                              [--summary]
 
 The report shows:
   * a summary of the session (duration, tokens, agent runs, errors, issues caught)
   * a Gantt-style timeline of every agent/subagent run — who ran, when, how long
     (use --compact to collapse idle gaps so short runs stay visible)
-  * a subagent value / efficiency table with auto-generated insights
+  * a subagent value / efficiency table with auto-generated insights, including
+    the model and effort each agent ran, as recorded by Claude Code
   * a Review-gate value panel — which review agents actually caught something
   * an Errors & friction panel — failed commands, rejected tool calls, failed agents
   * a readable, filterable chronological activity feed
@@ -19,6 +21,10 @@ The report shows:
 Background ("run_in_background") agents launch with an instant stub result; their
 real duration and output arrive later in a <task-notification>. This script
 correlates the two so async agents are timed and reported correctly.
+
+--summary prints one JSON object instead of the status lines: the session id,
+report path, Claude Code version, and the orchestrator's and each agent type's
+model and effort (plus runs). build-use-case copies it into the retrospective.
 
 No third-party dependencies — standard library only. Output is one HTML file.
 """
@@ -337,6 +343,7 @@ def load_subagents(session_path):
             "errors": sum(1 for t in tools if t["error"]),
             "ctx": context_signals(events),
             "model": primary_model(events),
+            "effort": recorded_effort(events),
         }
     return out
 
@@ -351,6 +358,23 @@ def primary_model(events):
             if mdl and mdl != "<synthetic>":
                 c[mdl] += 1
     return c.most_common(1)[0][0] if c else None
+
+
+def recorded_effort(events):
+    """The effort level(s) Claude Code recorded on a transcript's assistant
+    messages: `perTurnEffort`, else `effort`. These fields are undocumented, so
+    nothing is inferred when they're absent — the answer is then "unknown"."""
+    seen = set()
+    for ev in events:
+        m = ev.get("message")
+        if ev.get("type") != "assistant" or not isinstance(m, dict):
+            continue
+        if m.get("model") == "<synthetic>":
+            continue
+        e = ev.get("perTurnEffort") or ev.get("effort")
+        if e:
+            seen.add(str(e))
+    return ", ".join(sorted(seen)) if seen else "unknown"
 
 
 # --------------------------------------------------------------------------- #
@@ -469,13 +493,16 @@ def link_subagents(data, subs):
         s = by_prompt.get(_norm_prompt(a["input"].get("prompt")))
         a["sub"] = s
         a["model"] = s.get("model") if s else None
-    # a resumed run appends to its first run's transcript: inherit the model, but
-    # leave sub=None so its inner workload isn't counted twice
+        a["effort"] = s.get("effort") if s else "unknown"
+    # a resumed run appends to its first run's transcript: inherit the model and
+    # effort, but leave sub=None so its inner workload isn't counted twice
     by_id = {a["id"]: a for a in data["agents"]}
     for a in data["agents"]:
         if a.get("resume"):
+            parent = by_id.get(a.get("parent_id")) or {}
             a["sub"] = None
-            a["model"] = (by_id.get(a.get("parent_id")) or {}).get("model")
+            a["model"] = parent.get("model")
+            a["effort"] = parent.get("effort") or "unknown"
     data["files_all"] = merge_file_ops(
         [data["files"]] + [s["file_ops"] for s in subs.values()])
     data["tool_stats_all"] = merge_tool_stats(
@@ -500,6 +527,7 @@ def analyze(events):
     timeline = []
     first_ts = last_ts = None
     meta = {}
+    versions = []                         # every Claude Code version, in order seen
 
     for ev in events:
         ts = parse_ts(ev.get("timestamp"))
@@ -509,6 +537,8 @@ def analyze(events):
         for k in ("sessionId", "cwd", "gitBranch", "version"):
             if k in ev and k not in meta:
                 meta[k] = ev[k]
+        if ev.get("version") and ev["version"] not in versions:
+            versions.append(ev["version"])
         if ev.get("type") == "custom-title" and ev.get("customTitle"):
             meta.setdefault("title", ev["customTitle"])
 
@@ -685,9 +715,11 @@ def analyze(events):
     timeline.sort(key=lambda x: x["ts"] or datetime.max.replace(tzinfo=timezone.utc))
     errors.sort(key=lambda e: e["ts"] or datetime.max.replace(tzinfo=timezone.utc))
 
+    meta["versions"] = versions
     return {
         "meta": meta, "first_ts": first_ts, "last_ts": last_ts,
         "models": models, "tokens": dict(tokens),
+        "main_model": primary_model(events), "main_effort": recorded_effort(events),
         "tool_counter": tool_counter, "tool_stats": dict(tool_stats),
         "tools": tools, "agents": agents, "files": dict(files),
         "ctx_main": context_signals(events),
@@ -847,7 +879,7 @@ def render(data, source_name, compact):
         subtitle=esc(f"{source_name} · {span} · generated {generated}"),
         meta_line=esc(" · ".join(filter(None, [
             meta.get("gitBranch", ""), meta.get("cwd", ""),
-            f'v{meta["version"]}' if meta.get("version") else ""]))),
+            ", ".join(f"v{v}" for v in meta.get("versions", []))]))),
         cards=cards_html, insights=insights_html,
         gantt_note=note, legend=legend, gantt=gantt_html,
         value=value_html, gates=gates_html, errors=errors_html,
@@ -906,7 +938,8 @@ def render_value_table(agents, colours, has_sub=False):
         return '<p class="empty">No agents.</p>'
     stats = defaultdict(lambda: {"runs": 0, "total": 0.0, "gate": False,
                                  "caught": 0, "err": 0, "calls": 0,
-                                 "files": 0, "out_tok": 0, "models": set()})
+                                 "files": 0, "out_tok": 0, "models": set(),
+                                 "efforts": set()})
     for a in agents:
         s = stats[a["subagent"]]
         s["runs"] += 1
@@ -918,6 +951,7 @@ def render_value_table(agents, colours, has_sub=False):
             s["err"] += 1
         if a.get("model"):
             s["models"].add(a["model"])
+        s["efforts"].update(split_effort(a.get("effort")))
         sub = a.get("sub")
         if sub:
             s["calls"] += sub["tool_calls"]
@@ -935,12 +969,14 @@ def render_value_table(agents, colours, has_sub=False):
         errc = f'<span class="pill bad">{s["err"]}</span>' if s["err"] else "0"
         dot = f'<i class="dot" style="background:{colours[name]}"></i>'
         model = ", ".join(short_model(m) for m in sorted(s["models"])) or "—"
-        work = (f'<td class="num">{s["calls"]}</td>'
+        effort = join_known(s["efforts"])
+        work =(f'<td class="num">{s["calls"]}</td>'
                 f'<td class="num">{s["files"]}</td>'
                 f'<td class="num muted">{fmt_num(s["out_tok"])}</td>') if has_sub else ""
         rows.append(f'''<tr>
           <td>{dot}{esc(name)}{' <span class="gate-tag">gate</span>' if s["gate"] else ''}</td>
           <td>{esc(model)}</td>
+          <td{' class="muted"' if effort == "unknown" else ''}>{esc(effort)}</td>
           <td class="num">{s["runs"]}</td><td class="num">{fmt_dur(s["total"])}</td>
           <td class="num">{fmt_dur(avg)}</td>{work}
           <td>{val}</td><td class="num">{errc}</td></tr>''')
@@ -950,10 +986,23 @@ def render_value_table(agents, colours, has_sub=False):
             '<em>inside</em> each subagent (summed across its runs).</p>'
             if has_sub else "")
     return f'''{hint}<table class="vtable">
-      <thead><tr><th>Subagent</th><th>Model</th><th class="num">Runs</th>
+      <thead><tr><th>Subagent</th><th>Model</th><th>Effort</th><th class="num">Runs</th>
       <th class="num">Total time</th><th class="num">Avg</th>{work_head}
       <th>Gate value</th><th class="num">Errors</th></tr></thead>
       <tbody>{''.join(rows)}</tbody></table>'''
+
+
+def split_effort(e):
+    """"medium, high" -> {"medium", "high"}; None / "unknown" -> {"unknown"}."""
+    parts = {p.strip() for p in (e or "unknown").split(",") if p.strip()}
+    return parts or {"unknown"}
+
+
+def join_known(values):
+    """Every value seen, "unknown" last — a run with nothing recorded stays
+    visible even when other runs of the same agent recorded something."""
+    known = sorted(v for v in values if v != "unknown")
+    return ", ".join(known + (["unknown"] if "unknown" in values else [])) or "unknown"
 
 
 def short_model(m):
@@ -1547,6 +1596,34 @@ td.num, th.num {{ text-align:right; font-variant-numeric:tabular-nums; }}
 
 
 # --------------------------------------------------------------------------- #
+def run_summary(data, out):
+    """The run facts a retrospective records: what actually ran, with full model
+    IDs. A value that differs across runs is a comma-separated list; anything
+    the transcript didn't record is "unknown"."""
+    per = defaultdict(lambda: {"models": set(), "efforts": set(), "runs": 0})
+    for a in data["agents"]:
+        p = per[str(a["subagent"]).rsplit(":", 1)[-1]]
+        p["runs"] += 1
+        p["models"].add(a.get("model") or "unknown")
+        p["efforts"].update(split_effort(a.get("effort")))
+    agents = {name: {"model": join_known(p["models"]),
+                     "effort": join_known(p["efforts"]), "runs": p["runs"]}
+              for name, p in sorted(per.items())}
+    versions = data["meta"].get("versions") or []
+    try:
+        report = str(out.resolve().relative_to(Path.cwd().resolve()))
+    except ValueError:
+        report = str(out)
+    return {
+        "session": data["meta"].get("sessionId") or "unknown",
+        "report": report,
+        "claude_code": (versions[0] if len(versions) == 1 else versions) or "unknown",
+        "orchestrator": {"model": data.get("main_model") or "unknown",
+                         "effort": data.get("main_effort") or "unknown"},
+        "agents": agents,
+    }
+
+
 def main():
     global CONTEXT_DIRS, CONTEXT_RE
     ap = argparse.ArgumentParser(
@@ -1573,6 +1650,11 @@ def main():
     ap.add_argument("--label-b", default="Run B", help="label for the --compare run")
     ap.add_argument("--open", action="store_true",
                     help="open the report in a browser when done")
+    ap.add_argument("--summary", action="store_true",
+                    help="after writing the report, print one JSON object (session, "
+                    "report path, Claude Code version, and the model, effort and "
+                    "runs of the orchestrator and each agent) instead of the "
+                    "status lines")
     args = ap.parse_args()
 
     CONTEXT_DIRS = tuple(d.strip().strip("/") for d in args.context_dirs.split(",")
@@ -1616,6 +1698,12 @@ def main():
         out = out_dir / (src.stem + ".report.html")
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(render(data, src.name, args.compact), encoding="utf-8")
+
+    if args.summary:
+        print(json.dumps(run_summary(data, out), ensure_ascii=False))
+        if args.open:
+            webbrowser.open(out.resolve().as_uri())
+        return
 
     n_caught = sum(1 for a in data["agents"] if a.get("caught"))
     n_err = sum(1 for e in data["errors"] if e["kind"] == "error")

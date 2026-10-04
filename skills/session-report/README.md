@@ -55,7 +55,7 @@ For `/Users/me/work/shop` the folder is `~/.claude/projects/-Users-me-work-shop/
 
 ```
 python3 session_report.py <session.jsonl> [-o OUTPUT] [--out-dir DIR]
-                          [--context-dirs DIRS] [--compact] [--open]
+                          [--context-dirs DIRS] [--compact] [--open] [--summary]
 
   <session.jsonl>   Path to the session log.
   -o, --output      Output HTML path. Default: <out-dir>/<name>.report.html
@@ -71,9 +71,32 @@ python3 session_report.py <session.jsonl> [-o OUTPUT] [--out-dir DIR]
                     OTHER is B). See "Measuring whether domain & standards help".
   --label-a/-b      Labels for the two runs in a --compare report.
   --open            Open the finished report in your browser.
+  --summary         After writing the report, print one JSON object instead of
+                    the status lines (see below). build-use-case uses it to
+                    fill the retrospective's front matter.
 ```
 
 No third-party packages — Python 3.8+ standard library only.
+
+### `--summary` output
+
+```json
+{
+  "session": "ebf31e24-…",
+  "report": "reports/sessions/ebf31e24-….report.html",
+  "claude_code": ["2.1.283", "2.1.284"],
+  "orchestrator": {"model": "claude-opus-5-5", "effort": "medium"},
+  "agents": {
+    "architect":  {"model": "claude-opus-5-5", "effort": "medium", "runs": 6},
+    "junior-dev": {"model": "claude-opus-5-5, claude-sonnet-5", "effort": "medium", "runs": 4}
+  }
+}
+```
+
+Models are full IDs. `agents` is keyed by agent type without the plugin namespace. A value that
+differs across runs is a comma-separated list, and `claude_code` is a list when the session spans
+several versions. Anything the transcript didn't record is `unknown`. A session that spawned no
+agents has `"agents": {}`.
 
 ## What's in the report
 
@@ -82,7 +105,7 @@ No third-party packages — Python 3.8+ standard library only.
 | **Summary cards** | Duration, agent runs, tool calls, errors, rejections, issues caught by gates, tokens. |
 | **Insights** | Auto-generated callouts: which gates proved their value, which approved everything (low signal), where errors clustered, the slowest agent. |
 | **Agent timeline** | Gantt of every agent/subagent run, coloured by type. Bar width = real duration; green outline = caught an issue; red = failed/rejected; hatched = still pending. With `--compact`, idle gaps are collapsed but widths stay proportional. |
-| **Subagent value & efficiency** | Per-subagent table: **model used**, runs, total time, average, inner tool calls/files/tokens, gate catch-rate, errors. Reviewers show `caught N/M`; a gate that approves everything is flagged. |
+| **Subagent value & efficiency** | Per-subagent table: **model used**, **effort** (as recorded by Claude Code; `unknown` if not), runs, total time, average, inner tool calls/files/tokens, gate catch-rate, errors. Reviewers show `caught N/M`; a gate that approves everything is flagged. |
 | **Review-gate value** | Each review run (`spec-reviewer`, `senior-dev`, `qa`, …) with a verdict badge and a snippet of *what it caught* — the evidence that the gates are worth their cost. |
 | **Errors & friction** | Failed commands, failed agents, and tool calls you rejected (where the agent guessed wrong). Your list of things to look into. |
 | **Tool usage** | Every tool called (top-level **and** inside subagents), with call count, total time spent, and error count. |
@@ -184,7 +207,7 @@ Four details that matter for accuracy:
    it already spawned (`SendMessage` to that agent's id: an architect revision or
    a spec re-review), that counts as **another run** of the same subagent. The
    agent id is read from the spawn's result (`agentId: …`), or from `resumedAgentId`
-   in the `SendMessage` result. A resumed run inherits the subagent type and model.
+   in the `SendMessage` result. A resumed run inherits the subagent type, model and effort.
    Its inner workload stays on the first run, because the resume appends to the
    same transcript and would otherwise be counted twice.
 4. **Hand-back reports.** A subagent can deliver its final report as a peer
