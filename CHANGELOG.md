@@ -3,6 +3,16 @@
 All notable changes to this plugin. Versions follow [semver](https://semver.org/); before 1.0, a
 change that requires projects to edit their profile bumps the minor version.
 
+## [0.2.1] — 2026-10-04
+
+Documentation only. Host projects need do nothing.
+
+### Added
+- `docs/domain-and-standards.md`: what goes in `domain/` and `standards/`, how each agent uses them,
+  examples, sample prompts for drafting them, and how to tell which docs earn their place.
+- A "Domain and standards" section in the README, linked from `docs/pipeline.md` and
+  `docs/profile.md`.
+
 ## [0.2.0] — 2026-10-04
 
 Records what actually ran. Agent frontmatter says `model: opus`, but that's an alias. Runs have
