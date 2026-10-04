@@ -16,7 +16,8 @@ architect ─▶ spec-reviewer ─▶ 🚦 GATE 1 ─▶ junior-dev ─▶ qa �
 **OpenSpec owns the workflow mechanics; agents own judgment and standards.** Each agent calls the
 OpenSpec skill for its phase (`opsx:propose`, `opsx:apply`, `opsx:verify`) instead of re-implementing
 it, and adds what OpenSpec can't know: the project's standards, domain language and stack rules,
-which it reads from the profile, `CLAUDE.md`, `standards/` and `domain/`.
+which it reads from the profile, `CLAUDE.md`, `standards/` and `domain/`. See
+[domain-and-standards.md](domain-and-standards.md) for what those two folders should hold.
 
 ## The team
 

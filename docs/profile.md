@@ -26,6 +26,7 @@ Start from [`templates/sdlc-profile.md`](../templates/sdlc-profile.md).
 Where the pipeline reads and writes, relative to the project root. The defaults are `domain/`,
 `standards/`, `use-cases/`, `retrospectives/` and `reports/sessions/`. If you change the domain or
 standards folders, the session report needs `--context-dirs` to match; the skills pass it for you.
+[domain-and-standards.md](domain-and-standards.md) covers what goes in `domain/` and `standards/`.
 
 ### Git
 

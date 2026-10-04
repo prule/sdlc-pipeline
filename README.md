@@ -40,9 +40,29 @@ by itself: *"Use the sdlc-pipeline:qa agent to verify add-product-search"*.
 - The **OpenSpec CLI** (`npm install -g @fission-ai/openspec`), initialised in the project
   (`openspec init`), so that `openspec/config.yaml` and the `opsx:*` / `openspec-*` skills exist.
 - **Python 3.8+** for the hooks and reports (standard library only).
-- Recommended: a `domain/` folder (glossary, business rules, bounded contexts, actors, overview) and
-  a `standards/` folder. The agents ground their work in these. Without them the pipeline still
-  runs, but its plans are only as good as the use case.
+- Recommended: a `domain/` and a `standards/` folder. See [Domain and standards](#domain-and-standards).
+
+## Domain and standards
+
+The profile tells the agents your stack. Two folders in your project tell them the rest:
+
+- **`domain/`** describes the business: `overview.md`, `glossary.md`, `business-rules.md`,
+  `bounded-contexts.md` and `actors-and-personas.md`. The use-case writer, architect and
+  spec-reviewer read it, so use cases and plans use your terms, honour your rules and stay inside
+  the right bounded context. Business language only, no implementation.
+- **`standards/`** holds the rules your team builds by, one file per concern (for example
+  `architecture.md`, `testing.md`). Keep each rule checkable and numbered. The profile cites them;
+  the developers follow them and every reviewer finding cites the rule it breaks
+  (`standards/testing.md §3`).
+
+Without them the pipeline still runs, but its plans are only as good as the use case. To start, ask
+Claude to draft them from your code and existing docs, review every line, then run
+`/sdlc-pipeline:init` (or edit an existing profile) so the profile cites the standards. They grow from there: `write-use-case`
+flags domain gaps, the architect adds tasks to record new terms and rules, and retrospectives
+recommend new or clearer standards.
+
+[docs/domain-and-standards.md](docs/domain-and-standards.md) covers what each file should contain,
+with examples, sample prompts for drafting them, and how to tell which docs earn their place.
 
 ## Install
 
@@ -103,6 +123,8 @@ with the change and open the PR.
 - **[docs/pipeline.md](docs/pipeline.md)**: the stages, gates, fix loops, budget guardrails and
   retrospectives, and how to run any phase by hand.
 - **[docs/profile.md](docs/profile.md)**: the project profile, field by field, with a worked example.
+- **[docs/domain-and-standards.md](docs/domain-and-standards.md)**: what goes in `domain/` and
+  `standards/`, how the agents use them, and how to create them.
 - **[docs/observability.md](docs/observability.md)**: the event-log hooks, the pipeline dashboard
   and session reports.
 - **[docs/evaluating-the-pipeline.md](docs/evaluating-the-pipeline.md)**: how to tell whether the
