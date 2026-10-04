@@ -1,0 +1,18 @@
+{
+  "name": "sdlc-pipeline",
+  "owner": {
+    "name": "Paul Rule",
+    "url": "https://github.com/prule"
+  },
+  "metadata": {
+    "description": "The sdlc-pipeline Claude Code plugin: a spec-driven, multi-agent delivery pipeline built on OpenSpec."
+  },
+  "plugins": [
+    {
+      "name": "sdlc-pipeline",
+      "source": "./",
+      "description": "Spec-driven multi-agent delivery pipeline with approval gates, retrospectives and session reports.",
+      "version": "0.1.0"
+    }
+  ]
+}
