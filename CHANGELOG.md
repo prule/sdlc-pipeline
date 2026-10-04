@@ -3,6 +3,29 @@
 All notable changes to this plugin. Versions follow [semver](https://semver.org/); before 1.0, a
 change that requires projects to edit their profile bumps the minor version.
 
+## [0.3.0] — 2026-10-05
+
+Two skills that build the domain and standards docs with you. Host projects need do nothing; both
+skills are opt-in.
+
+### Added
+- `/sdlc-pipeline:write-domain`: drafts the five domain files from the project's code and docs,
+  marks what it inferred `(to confirm)`, and interviews the user in order (overview, actors,
+  glossary, bounded contexts, business rules). Re-runs add to the files and keep `BR-` ids.
+- `/sdlc-pipeline:write-standards`: the user picks an architecture template and any concern
+  templates, then keeps, adapts or drops every rule. Kept rules are written to `standards/`,
+  numbered, with stack blanks filled in. The skill then updates the profile lines that cite
+  `standards/`, after showing a diff.
+- Standards catalogue in `templates/standards/`: `layered` and `hexagonal` (architecture),
+  `testing`, `api` and `persistence` (concerns).
+- `scripts/validate.py` checks every catalogue rule has `Why`, `Check` and `Profile` lines and that
+  no template names a language, build tool or framework.
+
+### Changed
+- `init` suggests `write-domain` and `write-standards` when `domain/` or `standards/` is missing,
+  instead of offering a domain skeleton.
+- `docs/domain-and-standards.md` and the README describe the two skills.
+
 ## [0.2.1] — 2026-10-04
 
 Documentation only. Host projects need do nothing.

@@ -24,7 +24,9 @@ The paths are set in the profile (**Paths → Domain knowledge** and **Standards
 | `spec-reviewer` | Checks the plan uses glossary terms, honours the business rules, stays inside its bounded context, and records new knowledge. | Checks the plan against the profile's **Plan review** checklist and the standards it cites. |
 | `junior-dev` | — | Follows the profile's **Implementation rules** and the standards they cite. |
 | `qa`, `senior-dev` | — | Check the code against their checklist sections. Each finding cites `standards/<file>.md §<n>`. |
-| `init` | Offers to draft a skeleton if the folder is missing. | Drafts the profile's rules, task order and checklists from it. |
+| `write-domain` | Drafts and grows it, interviewing you for what it can't find. | — |
+| `write-standards` | — | Writes it from the catalogue rules you keep, and updates the profile lines that cite it. |
+| `init` | Suggests `write-domain` if the folder is missing. | Drafts the profile's rules, task order and checklists from it; suggests `write-standards` if it is missing. |
 | Retrospective | Recommends domain doc changes when a gap caused a defect. | Recommends a new or clearer standard when one was missing or unclear. |
 
 The profile is the link between the agents and `standards/`. Agents find a standard through the
@@ -131,13 +133,53 @@ After you add or change a standard, update the profile lines that cite it. See
 ## Creating them
 
 You don't need complete docs to start. A glossary, a handful of business rules and one or two
-standards are enough to see the difference in the first plan.
+standards are enough to see the difference in the first plan. Two skills build them with you.
 
-### Draft them with Claude
+### `write-domain`
 
-Most projects already hold this knowledge in code, tickets, READMEs and wikis. Ask Claude to draft
-from it, then review every line. A draft is a starting point; a wrong rule here becomes a wrong
-plan later. For example:
+`/sdlc-pipeline:write-domain` drafts the five domain files from what the project already holds:
+code, README, `CLAUDE.md`, docs and use cases. It marks anything it inferred rather than found as
+`(to confirm)`. Then it interviews you in this order, because each step gives the words for the
+next:
+
+```
+overview --> actors and personas --> glossary --> bounded contexts --> business rules
+```
+
+It asks only about what it couldn't find, and gives each business rule an id (`BR-LOAN-1`). Run it
+again to grow the docs: it shows additions as a diff, keeps existing ids, and never deletes an
+entry you didn't ask it to. On a new project with no code, the whole thing is an interview.
+
+### `write-standards`
+
+`/sdlc-pipeline:write-standards` starts from a catalogue of ready-made rules in the plugin:
+
+| Kind | Templates | Pick |
+|------|-----------|------|
+| Architecture | `layered`, `hexagonal` | at most one |
+| Concerns | `testing`, `api`, `persistence` | any |
+
+The catalogue names no language, tool or framework. Where a rule needs one, it has a blank such as
+`<migration tool>`, which the skill fills in from your code or your answers.
+
+For every rule in the templates you pick, the skill asks: *would you reject a change that broke
+this?* You **keep** it, **adapt** it or **drop** it. If the code already follows a rule, the skill
+says so and shows where, but the answer is still yours. Only kept and adapted rules are written to
+`standards/`, numbered `§1` to `§n`. Keep only what you enforce today; you can add rules later.
+
+Then it updates `.claude/sdlc-profile.md` so the agents read the new rules: one line per kept rule in
+each section that needs it (Implementation rules and the three Review checklist sections), citing
+`standards/<file>.md §<n>`. It changes only lines that cite `standards/`, shows you the full diff,
+and writes only if you confirm. This is the one skill that edits an existing profile, because a
+standard the profile doesn't cite is rarely read.
+
+Run it again to add a template or extend a file. New rules get the next number; existing numbers
+never change, because findings and retrospectives cite them.
+
+### Without the skills
+
+You can also ask Claude to draft the docs directly, then review every line. A draft is a starting
+point; a wrong rule here becomes a wrong plan later. For example:
 
 ```
 Draft domain/ for this project: overview.md, glossary.md, business-rules.md,
@@ -152,14 +194,13 @@ and testing.md to start. Only include rules the code consistently follows and a
 reviewer could check. Number each rule and give its reason in one line.
 ```
 
-Then run `/sdlc-pipeline:init`, or edit `.claude/sdlc-profile.md` yourself, so the profile cites the
-new standards.
+Then edit `.claude/sdlc-profile.md` so it cites the new standards.
 
 ### With `init`
 
 `/sdlc-pipeline:init` drafts the profile's Implementation rules, Task order and Review checklists from
-whatever is in `standards/`. If `domain/` is missing, it offers to draft a skeleton. It never
-overwrites a file that already exists, so after changing your standards, update the profile by hand.
+whatever is in `standards/` when it creates the profile. If `domain/` or `standards/` is missing, it
+suggests `write-domain` or `write-standards`. It never overwrites a file that already exists.
 
 ### Grow them as you go
 
