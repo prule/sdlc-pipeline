@@ -53,7 +53,8 @@ What belongs in each file, and what to leave out, is set by
    deferred. Suggest the next step: `/sdlc-pipeline:write-standards` if the project has no
    `standards/`. Otherwise, suggest updating `openspec/config.yaml` and the README to point at the
    domain and standards docs (see `${CLAUDE_PLUGIN_ROOT}/docs/getting-started.md`, step 5), then
-   `/sdlc-pipeline:write-use-case <idea>`.
+   `/sdlc-pipeline:plan-use-cases` if there is no `BACKLOG.md`, otherwise
+   `/sdlc-pipeline:write-use-case next`.
 
 ## Rules
 

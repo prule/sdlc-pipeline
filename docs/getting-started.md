@@ -1,11 +1,12 @@
 # Getting started
 
 Set a project up in this order. Each step gives the next one something to work from: the PRD gives
-the domain docs their words, the domain and standards give OpenSpec its context, and all of it gives
-the first use case a solid base.
+the domain docs their words, the domain and standards give OpenSpec its context, the backlog says
+which use case comes first, and all of it gives the first use case a solid base.
 
 ```
-1. PRD (grill-me) ─▶ 2. init ─▶ 3. write-domain ─▶ 4. write-standards ─▶ 5. openspec config + README ─▶ 6. use cases
+1. PRD (grill-me) ─▶ 2. init ─▶ 3. write-domain ─▶ 4. write-standards ─▶ 5. openspec config + README
+   ─▶ 6. plan-use-cases (BACKLOG.md) ─▶ 7. write and build use cases, one at a time
 ```
 
 You don't need perfect docs before your first use case. A short PRD, a glossary, a few business
@@ -123,7 +124,7 @@ and wrong domain docs. Check that it:
 
 - describes the product the way the PRD does, and links to the PRD;
 - gives the same build and test commands as the profile's **Verify** command;
-- points to `domain/`, `standards/` and `use-cases/`, and says how a change is made (a use case run
+- points to `domain/`, `standards/`, `use-cases/` and `BACKLOG.md` (once step 6 writes it), and says how a change is made (a use case run
   through `/sdlc-pipeline:build-use-case`).
 
 ```
@@ -133,11 +134,40 @@ Fix anything out of date and add links to those docs. Show me the diff first.
 
 Repeat step 5 whenever the PRD, the domain or the standards change a lot.
 
-## 6. Write and build use cases
+## 6. Plan the use cases
+
+Run `/sdlc-pipeline:plan-use-cases`. It reads the PRD and the domain docs, proposes the use cases the
+product needs, interviews you to agree the order, and writes `BACKLOG.md` at the project root. The
+aim is a **working product as soon as possible**, then one improvement at a time:
+
+- **MVP:** the fewest use cases that let the primary actor reach the product's core goal end to end,
+  main flows only. Every candidate gets the same question: *"Can the primary actor reach the core goal
+  without this?"* If yes, it waits. The skill asks it again whenever you try to add to the MVP.
+- **Increments:** one use case each, or one extension of an earlier one, most valuable first. Each
+  leaves a product someone would rather use than the one before.
+- **Later:** ideas worth keeping that aren't ordered yet.
+
+Each entry is a checklist item with an id (`B-3`), the actor, the goal and why it sits where it does.
+The backlog keeps itself up to date:
+
+| When | What happens to the entry |
+|------|---------------------------|
+| `/sdlc-pipeline:write-use-case next` saves the use case | its first line links to the use case: `— written: UC-004` |
+| `/sdlc-pipeline:build-use-case` archives the change | its box is ticked, it says `— built: UC-004, change <name>`, and the section count goes up (`MVP (3/4 built)`) |
+| a use case is written or a change archived some other way | the next `plan-use-cases` run finds it and proposes the tick |
+
+Re-run `plan-use-cases` when the PRD changes, or to re-order what's next. It keeps every id and
+status, and shows you a diff before writing.
+
+## 7. Write and build use cases
 
 ```
-/sdlc-pipeline:write-use-case <rough idea>            # draft use-cases/UC-<n>-<slug>.md, then review it
+/sdlc-pipeline:write-use-case next                    # draft the next backlog entry as use-cases/UC-<n>-<slug>.md
 /sdlc-pipeline:build-use-case use-cases/UC-003-….md   # run the pipeline; answer the two gates
 ```
+
+Build the MVP entries first, in order. Once they are all ticked you have a working product; from
+there, each increment makes it more valuable. `write-use-case <rough idea>` still works for an idea
+that isn't in the backlog, and offers to add it.
 
 [pipeline.md](pipeline.md) describes what happens from here.

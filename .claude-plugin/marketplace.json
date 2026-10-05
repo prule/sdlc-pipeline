@@ -12,7 +12,7 @@
       "name": "sdlc-pipeline",
       "source": "./",
       "description": "Spec-driven multi-agent delivery pipeline with approval gates, retrospectives and session reports.",
-      "version": "0.5.0"
+      "version": "0.6.0"
     }
   ]
 }
