@@ -64,5 +64,7 @@ live under `${CLAUDE_PLUGIN_ROOT}`.
    settings.
 
 7. **Report** what you created, what already existed, and the placeholders the user still needs to
-   fill in. Suggest a reference to the profile in `CLAUDE.md` and the next step:
-   `/sdlc-pipeline:write-use-case <idea>`.
+   fill in. Suggest a reference to the profile in `CLAUDE.md` and the next step, in this order:
+   a PRD (written with the `grill-me` skill) if the project has none, `/sdlc-pipeline:write-domain`
+   if `domain/` is missing, `/sdlc-pipeline:write-standards` if `standards/` is missing, and
+   otherwise `/sdlc-pipeline:write-use-case <idea>`.

@@ -42,7 +42,11 @@ by itself: *"Use the sdlc-pipeline:qa agent to verify add-product-search"*.
 - The **OpenSpec CLI** (`npm install -g @fission-ai/openspec`), initialised in the project
   (`openspec init`), so that `openspec/config.yaml` and the `opsx:*` / `openspec-*` skills exist.
 - **Python 3.8+** for the hooks and reports (standard library only).
-- Recommended: a `domain/` and a `standards/` folder. See [Domain and standards](#domain-and-standards).
+- Recommended: Matt Pocock's [skills plugin](https://github.com/mattpocock/skills)
+  (`/plugin install mattpocock-skills@claude-plugins-official`) for the `grill-me` skill, which
+  you use to write the PRD.
+- Recommended: a PRD, a `domain/` and a `standards/` folder. See [Quick start](#quick-start) and
+  [Domain and standards](#domain-and-standards).
 
 ## Domain and standards
 
@@ -57,13 +61,14 @@ The profile tells the agents your stack. Two folders in your project tell them t
   the developers follow them and every reviewer finding cites the rule it breaks
   (`standards/testing.md §3`).
 
-Without them the pipeline still runs, but its plans are only as good as the use case. To start, run
-`/sdlc-pipeline:write-domain`, which drafts the domain docs from your code and docs and interviews
-you for the rest. Then run `/sdlc-pipeline:write-standards`: pick an architecture and the concerns
-you care about, keep, adapt or drop each ready-made rule, and it updates the profile to cite the
-rules you kept. They grow from there: `write-use-case`
-flags domain gaps, the architect adds tasks to record new terms and rules, and retrospectives
-recommend new or clearer standards.
+Without them the pipeline still runs, but its plans are only as good as the use case. Write a PRD
+with `grill-me` first; it gives the domain docs their words. Then run `/sdlc-pipeline:write-domain`,
+which drafts the domain docs from the PRD, your code and your docs and interviews you for the rest.
+Then run `/sdlc-pipeline:write-standards`: pick an architecture and the concerns you care about,
+keep, adapt or drop each ready-made rule, and it updates the profile to cite the rules you kept.
+When both exist, update `openspec/config.yaml` to point at them and check the README is accurate.
+They grow from there: `write-use-case` flags domain gaps, the architect adds tasks to record new
+terms and rules, and retrospectives recommend new or clearer standards.
 
 [docs/domain-and-standards.md](docs/domain-and-standards.md) covers what each file should contain,
 with examples, how the two skills build them, sample prompts for drafting them by hand, and how to tell which docs earn their place.
@@ -111,10 +116,22 @@ Plugins can't set environment variables or permissions, so put these guardrails 
 
 ## Quick start
 
+Set a project up in this order. [docs/getting-started.md](docs/getting-started.md) covers each step.
+
+1. **Write a PRD.** Run `/mattpocock-skills:grill-me` on your product idea. It interviews you until
+   every decision is settled. Then ask it to write the result to `docs/prd.md`.
+2. **Set up the project.** Run `openspec init`, then `/sdlc-pipeline:init` for the profile and
+   folders.
+3. **Document the domain.** Run `/sdlc-pipeline:write-domain`. It drafts `domain/` from the PRD and
+   your code, then asks you what it couldn't find.
+4. **Choose the standards.** Run `/sdlc-pipeline:write-standards`. It writes `standards/` and
+   updates the profile to cite them.
+5. **Update the OpenSpec config and the README.** Point `openspec/config.yaml`'s `context` and
+   `rules` at the PRD, `domain/` and `standards/`, and make sure `README.md` describes the product
+   and its commands accurately. No skill does this for you.
+6. **Write and build use cases:**
+
 ```
-/sdlc-pipeline:init                                   # once per project: profile + folders
-/sdlc-pipeline:write-domain                           # optional: draft domain/ with you
-/sdlc-pipeline:write-standards                        # optional: choose standards/, wire the profile
 /sdlc-pipeline:write-use-case <rough idea>            # draft use-cases/UC-<n>-<slug>.md, then review it
 /sdlc-pipeline:build-use-case use-cases/UC-003-….md   # run the pipeline; answer the two gates
 ```
@@ -126,6 +143,8 @@ with the change and open the PR.
 
 ## Documentation
 
+- **[docs/getting-started.md](docs/getting-started.md)**: setting a project up, in order: PRD,
+  init, domain, standards, then the OpenSpec config and README.
 - **[docs/pipeline.md](docs/pipeline.md)**: the stages, gates, fix loops, budget guardrails and
   retrospectives, and how to run any phase by hand.
 - **[docs/profile.md](docs/profile.md)**: the project profile, field by field, with a worked example.

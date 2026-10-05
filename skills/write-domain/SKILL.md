@@ -19,7 +19,8 @@ What belongs in each file, and what to leave out, is set by
    already exist. The five files are `overview.md`, `actors-and-personas.md`, `glossary.md`,
    `bounded-contexts.md` and `business-rules.md`.
 
-2. **Mine the sources.** Read the README, `CLAUDE.md`, `docs/`, existing use cases and
+2. **Mine the sources.** Read the PRD (usually `docs/prd.md`) first, then the README, `CLAUDE.md`,
+   the rest of `docs/`, existing use cases and
    `openspec/specs/`, then the code's names for things (types, modules, messages, error text). Draft
    every entry you can. Mark each entry you **inferred** rather than found stated as `(to confirm)`.
    Translate implementation into business terms: a `loans` table with a `due_date` column becomes a
@@ -50,7 +51,9 @@ What belongs in each file, and what to leave out, is set by
 
 6. **Report** the files written, the entries still marked `(to confirm)`, and any questions the user
    deferred. Suggest the next step: `/sdlc-pipeline:write-standards` if the project has no
-   `standards/`, otherwise `/sdlc-pipeline:write-use-case <idea>`.
+   `standards/`. Otherwise, suggest updating `openspec/config.yaml` and the README to point at the
+   domain and standards docs (see `${CLAUDE_PLUGIN_ROOT}/docs/getting-started.md`, step 5), then
+   `/sdlc-pipeline:write-use-case <idea>`.
 
 ## Rules
 
