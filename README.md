@@ -18,6 +18,8 @@ stack rules in a short **profile** file (`.claude/sdlc-profile.md`).
 | Component | Name | What it does |
 |-----------|------|--------------|
 | Skill | `/sdlc-pipeline:init` | Sets a project up: checks OpenSpec, writes the profile, creates the folders. |
+| Skill | `/sdlc-pipeline:write-domain` | Drafts `domain/` from your code and docs, then interviews you to confirm it and fill the gaps. |
+| Skill | `/sdlc-pipeline:write-standards` | Builds `standards/` from a catalogue of architecture and concern rules you keep, adapt or drop, and updates the profile to cite them. |
 | Skill | `/sdlc-pipeline:write-use-case <idea>` | Interactively drafts a business use case from the domain docs and saves it to `use-cases/`. |
 | Skill | `/sdlc-pipeline:build-use-case <path>` | Runs the whole pipeline for one use case, with the two gates, fix loops, budget caps and the retrospective. |
 | Skill | `session-report` | Turns a session log into an HTML report (agent timeline, gate value, errors, context use). Ask *"analyse this session"*. |
@@ -29,7 +31,7 @@ stack rules in a short **profile** file (`.claude/sdlc-profile.md`).
 | Agent | `use-case-writer` | One-shot use-case drafting (the non-interactive `write-use-case`). |
 | Hooks | `hooks/hooks.json` | Logs every tool call and agent event to `logs/pipeline-events.jsonl` in the project. |
 | Script | `scripts/pipeline-report.py` | Renders that event log as an HTML dashboard. |
-| Templates | `templates/` | Profile, use case, retrospective, retrospectives README. |
+| Templates | `templates/` | Profile, use case, retrospective, retrospectives README, and the standards catalogue (`templates/standards/`). |
 
 Agents show up namespaced, for example `sdlc-pipeline:architect` in `/agents`, and you can run one
 by itself: *"Use the sdlc-pipeline:qa agent to verify add-product-search"*.
@@ -55,14 +57,16 @@ The profile tells the agents your stack. Two folders in your project tell them t
   the developers follow them and every reviewer finding cites the rule it breaks
   (`standards/testing.md §3`).
 
-Without them the pipeline still runs, but its plans are only as good as the use case. To start, ask
-Claude to draft them from your code and existing docs, review every line, then run
-`/sdlc-pipeline:init` (or edit an existing profile) so the profile cites the standards. They grow from there: `write-use-case`
+Without them the pipeline still runs, but its plans are only as good as the use case. To start, run
+`/sdlc-pipeline:write-domain`, which drafts the domain docs from your code and docs and interviews
+you for the rest. Then run `/sdlc-pipeline:write-standards`: pick an architecture and the concerns
+you care about, keep, adapt or drop each ready-made rule, and it updates the profile to cite the
+rules you kept. They grow from there: `write-use-case`
 flags domain gaps, the architect adds tasks to record new terms and rules, and retrospectives
 recommend new or clearer standards.
 
 [docs/domain-and-standards.md](docs/domain-and-standards.md) covers what each file should contain,
-with examples, sample prompts for drafting them, and how to tell which docs earn their place.
+with examples, how the two skills build them, sample prompts for drafting them by hand, and how to tell which docs earn their place.
 
 ## Install
 
@@ -109,6 +113,8 @@ Plugins can't set environment variables or permissions, so put these guardrails 
 
 ```
 /sdlc-pipeline:init                                   # once per project: profile + folders
+/sdlc-pipeline:write-domain                           # optional: draft domain/ with you
+/sdlc-pipeline:write-standards                        # optional: choose standards/, wire the profile
 /sdlc-pipeline:write-use-case <rough idea>            # draft use-cases/UC-<n>-<slug>.md, then review it
 /sdlc-pipeline:build-use-case use-cases/UC-003-….md   # run the pipeline; answer the two gates
 ```

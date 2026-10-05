@@ -39,9 +39,10 @@ live under `${CLAUDE_PLUGIN_ROOT}`.
      `${CLAUDE_PLUGIN_ROOT}/templates/retrospectives-README.md`;
    - the session-reports folder with a `.gitkeep`.
 
-4. **Domain docs.** If the domain folder is missing, tell the user the agents rely on it (glossary,
-   business rules, bounded contexts, actors and personas, overview) and offer to draft a skeleton.
-   Don't create it unasked.
+4. **Domain and standards docs.** If the domain folder is missing, tell the user the agents rely on
+   it (glossary, business rules, bounded contexts, actors and personas, overview) and suggest
+   `/sdlc-pipeline:write-domain`. If the standards folder is missing, suggest
+   `/sdlc-pipeline:write-standards`. Don't create either.
 
 5. **.gitignore.** Add `logs/` (the plugin's hook writes `logs/pipeline-events.jsonl`) if it isn't
    ignored already.

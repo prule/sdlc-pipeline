@@ -3,8 +3,9 @@
 
 Checks: the manifests parse and their versions match, every agent and skill has
 `name` and `description` frontmatter (and the name matches its file or folder),
-the hooks file parses and points at scripts that exist, and every Python file
-compiles. Standard library only. Exits 1 on any failure.
+every standards catalogue rule has Why, Check and Profile lines and no template
+names a stack, the hooks file parses and points at scripts that exist, and every
+Python file compiles. Standard library only. Exits 1 on any failure.
 """
 import json
 import re
@@ -67,6 +68,40 @@ for path in sorted((ROOT / "skills").glob("*/SKILL.md")):
         fail(f"{path.relative_to(ROOT)}: needs name and description frontmatter")
     elif fm["name"] != path.parent.name:
         fail(f"{path.relative_to(ROOT)}: name '{fm['name']}' != folder name")
+
+# Standards catalogue: every rule is complete, and no template names a stack. The denylist is a
+# tripwire for obvious slips, not a guarantee; keep it to names that are never ordinary words.
+PROFILE_SECTIONS = {"implementation-rule", "plan-review", "verification", "code-review"}
+STACK_NAMES = [
+    "java", "kotlin", "python", "javascript", "typescript", "golang", "ruby", "php", "csharp",
+    "scala", "elixir", "gradle", "maven", "npm", "yarn", "pnpm", "webpack", "bazel", "spring",
+    "django", "flask", "rails", "react", "angular", "vue", "nextjs", "nestjs", "laravel", "dotnet",
+    "hibernate", "flyway", "liquibase", "junit", "pytest", "jest", "mockito", "testcontainers",
+    "postgres", "postgresql", "mysql", "mongodb", "kafka",
+]
+STACK_RE = re.compile(r"\b(" + "|".join(STACK_NAMES) + r")\b", re.I)
+for path in sorted((ROOT / "templates" / "standards").glob("**/*.md")):
+    rel = path.relative_to(ROOT)
+    text = path.read_text(encoding="utf-8")
+    for word in sorted({m.group(1).lower() for m in STACK_RE.finditer(text)}):
+        fail(f"{rel}: names a stack ('{word}'); use an <angle-bracket> blank")
+    rules = re.split(r"^## §(\d+)\b.*$", text, flags=re.M)[1:]
+    numbers = [int(n) for n in rules[0::2]]
+    if not numbers:
+        fail(f"{rel}: no '## §<n>' rules")
+    elif numbers != list(range(1, len(numbers) + 1)):
+        fail(f"{rel}: rules must be numbered §1 to §{len(numbers)} in order")
+    for n, body in zip(numbers, rules[1::2]):
+        fields = dict(re.findall(r"^(Why|Check|Profile|Alternative to):\s*(.*)$", body, re.M))
+        for field in ("Why", "Check", "Profile"):
+            if not fields.get(field, "").strip():
+                fail(f"{rel} §{n}: missing '{field}:'")
+        for section in filter(None, (s.strip() for s in fields.get("Profile", "").split(","))):
+            if section not in PROFILE_SECTIONS:
+                fail(f"{rel} §{n}: unknown profile section '{section}'")
+        alt = fields.get("Alternative to")
+        if alt is not None and int(re.sub(r"\D", "", alt) or 0) not in numbers:
+            fail(f"{rel} §{n}: 'Alternative to: {alt}' names no rule in this file")
 
 hooks = load_json("hooks/hooks.json")
 for event, groups in (hooks.get("hooks") or {}).items():
