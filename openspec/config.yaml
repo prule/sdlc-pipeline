@@ -10,17 +10,24 @@ context: |
   What the repo is made of. There is no application code; the "code" is prompts plus a little
   Python:
   - agents/<name>.md: subagent definitions (frontmatter: name, description, model, tools).
-  - skills/<name>/SKILL.md: skills (init, write-use-case, build-use-case, session-report).
+  - skills/<name>/SKILL.md: skills (init, write-domain, write-standards, write-use-case,
+    build-use-case, session-report).
   - hooks/hooks.json + hooks/log-event.py: event logging to the host project's
     logs/pipeline-events.jsonl.
   - scripts/: validate.py (CI static checks), pipeline-report.py (HTML dashboard).
-  - templates/: files copied into host projects (profile, use case, retrospective).
-  - docs/: user documentation. README.md is the entry point.
+  - templates/: files copied into host projects (profile, use case, retrospective,
+    retrospectives README). templates/standards/ is the standards catalogue: architecture/*.md
+    (pick at most one) and concerns/*.md (pick any), each rule a numbered §n with Why, Check and
+    Profile lines and <angle-bracket> stack blanks.
+  - docs/: user documentation. README.md is the entry point; docs/getting-started.md gives the
+    setup order for a host project (PRD via grill-me, init, write-domain, write-standards, then
+    openspec/config.yaml and README).
   - .claude-plugin/plugin.json and marketplace.json: manifests. Their versions must match.
 
   Hard constraints:
-  - Stack-agnostic. Agents and skills never name a language, build tool or framework. Stack facts
-    belong in the host project's .claude/sdlc-profile.md, which the agents read.
+  - Stack-agnostic. Agents, skills and catalogue templates never name a language, build tool or
+    framework (validate.py checks the templates). Stack facts belong in the host project's
+    .claude/sdlc-profile.md and standards/, which the agents read.
   - Don't restate OpenSpec. Agents invoke the opsx:* skills for their phase and add only
     judgment; they don't copy OpenSpec's procedure or artifact formats.
   - Python is 3.8+ and standard library only. No pip dependencies.
@@ -29,8 +36,11 @@ context: |
   - Plugins can't set env vars or permissions. Anything like that is documented for the
     project's settings.json, not shipped.
 
-  Domain terms: use case (UC-n, in use-cases/), profile (.claude/sdlc-profile.md), change (an
-  OpenSpec change), Gate 1 (plan approval) and Gate 2 (finished-change approval), fix loop,
+  Domain terms: PRD (the host project's product requirements, written with grill-me), use case
+  (UC-n, in use-cases/), profile (.claude/sdlc-profile.md), domain docs (domain/: overview,
+  actors-and-personas, glossary, bounded-contexts, business-rules with BR-<AREA>-<n> ids),
+  standards (standards/<file>.md, rules numbered §n and cited from the profile), standards
+  catalogue (templates/standards/), change (an OpenSpec change), Gate 1 (plan approval) and Gate 2 (finished-change approval), fix loop,
   budget guardrails, retrospective, session report, host project (the repo the plugin runs in, as
   opposed to this repo).
 

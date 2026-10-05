@@ -136,10 +136,15 @@ After you add or change a standard, update the profile lines that cite it. See
 You don't need complete docs to start. A glossary, a handful of business rules and one or two
 standards are enough to see the difference in the first plan. Two skills build them with you.
 
+Write a PRD first, with the `grill-me` skill, and save it in `docs/`. `write-domain` drafts from
+it, so the interview only asks about what the PRD leaves out. When both folders exist, update
+`openspec/config.yaml` and the README to point at them. [getting-started.md](getting-started.md)
+covers the whole order, with an example config.
+
 ### `write-domain`
 
 `/sdlc-pipeline:write-domain` drafts the five domain files from what the project already holds:
-code, README, `CLAUDE.md`, docs and use cases. It marks anything it inferred rather than found as
+the PRD, code, README, `CLAUDE.md`, docs and use cases. It marks anything it inferred rather than found as
 `(to confirm)`. Then it interviews you in this order, because each step gives the words for the
 next:
 

@@ -84,7 +84,10 @@ Each rule is a `## §<n>` heading with `Why:` (the reason), `Check:` (what a rev
 
 7. **Report** the files written, the rules kept, adapted and dropped per template, and whether the
    profile was updated. Suggest re-running this skill to add a template later, and
-   `/sdlc-pipeline:write-domain` if the project has no domain docs.
+   `/sdlc-pipeline:write-domain` if the project has no domain docs. Once both exist, suggest
+   updating `openspec/config.yaml` and the README to point at them (see
+   `${CLAUDE_PLUGIN_ROOT}/docs/getting-started.md`, step 5), then
+   `/sdlc-pipeline:write-use-case <idea>`.
 
 ## Rules
 

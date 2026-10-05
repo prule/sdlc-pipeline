@@ -3,6 +3,21 @@
 All notable changes to this plugin. Versions follow [semver](https://semver.org/); before 1.0, a
 change that requires projects to edit their profile bumps the minor version.
 
+## [0.4.1] — 2026-10-05
+
+Documentation of the order to set a project up in. Host projects need do nothing.
+
+### Added
+- `docs/getting-started.md`: set a project up in this order. Write a PRD with the `grill-me` skill,
+  run `init`, `write-domain` and `write-standards`, then update `openspec/config.yaml` and the
+  README to point at the new docs. It includes an example config and prompts for each step.
+
+### Changed
+- The README's prerequisites and Quick start follow that order. `docs/domain-and-standards.md`
+  says to write the PRD first.
+- `write-domain` reads the PRD before the other sources. The next step that `init`,
+  `write-domain` and `write-standards` suggest follows the same order.
+
 ## [0.4.0] — 2026-10-05
 
 An end-to-end testing template for the standards catalogue. Host projects need do nothing. To adopt

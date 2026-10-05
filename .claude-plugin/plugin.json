@@ -1,6 +1,6 @@
 {
   "name": "sdlc-pipeline",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "A spec-driven, multi-agent delivery pipeline: use case → architect → spec review → implement → QA → code review → archive, with human approval gates, retrospectives and session reports. Built on OpenSpec.",
   "author": {
     "name": "Paul Rule",
