@@ -43,7 +43,7 @@ Spawn the plugin's agents by their namespaced type: `sdlc-pipeline:architect`, `
    - **Recurrence:** before writing, read the five most recent records in the retrospectives directory. Mark any finding or recommendation that appeared before with `recurs: <earlier file>`. A recurring finding means an input isn't working, so rank its recommendation first.
    - **Session report:** find this session's log with `ls -t ~/.claude/projects/$(pwd | sed 's#[/.]#-#g')/*.jsonl | head -1` and generate its report with `python3 "${CLAUDE_PLUGIN_ROOT}/skills/session-report/session_report.py" <log> --compact --summary` (it writes to the profile's session-reports path). It prints one JSON object: copy its `session`, `report`, `claude_code`, `orchestrator` and `agents` into the front matter exactly as given (quote a comma-separated value), even if the project's template lacks those fields. Never fill them from agent frontmatter. If the script fails, set them to `unknown` and say so in the Summary.
    - Then print a one-line status: `📝 retrospective — <file> (<n> failed reviews, <n> standards violations, <n> recommendations)`.
-   - Remind the human to commit the retrospective and session report with the change, and to open the PR against the profile's PR target.
+   - Remind the human to commit the retrospective, the session report and its `.summary.json` with the change, and to open the PR against the profile's PR target.
 
 ## Rules
 - Keep each subagent's context tight: pass it the change name and only what it needs, not this whole conversation.

@@ -106,35 +106,39 @@ question:
 
 | Report section | Answers | What "good" looks like |
 |---|---|---|
-| **Summary cards** | Scale & cost of the run | — |
+| **Cards** | Scale & cost of the run: time split (agents, waiting on you, orchestrator), fix loops, findings, tokens | Little time in fix loops; waiting on you only at the gates |
+| **Notes** | Fallbacks the analysis used | None; if there are, read those numbers with care |
 | **Insights** | Auto-generated callouts | Read these first; they flag the obvious wins and smells |
-| **Agent timeline** (Gantt) | *When* each agent ran, how long, overlaps | Work is progressing, not stalled; parallel where possible |
-| **Subagent value & efficiency** | Q1 — who does the work, who catches issues, at what cost, and **which model and effort each agent ran** | Producers do most tool calls/files; gates are cheaper but catch things; every agent on the configured model (opus) — a cheaper model on a long-running producer can cost more, not less, by needing more turns |
-| **Review-gate value** | Q2 — what each reviewer actually caught | Gates with real, specific findings (not rubber-stamps) |
-| **Errors & friction** | Where the run stumbled | Few command errors; few rejected tool calls |
-| **Tool usage** | Where time/effort went per tool | No single tool dominating unexpectedly |
-| **Files touched** | What was read/written/edited across the whole run | Writes concentrated in the change's area |
-| **Context ingestion** | Q3 — are `domain/`/`standards/` read & used | High-influence docs read *before* writing; catches cite docs |
-| **Activity feed** | The narrative — prompts, decisions, tool calls | Sanity-check the reasoning where a metric surprises you |
+| **Timeline** | *When* each agent ran, your waits, and each fix loop | Work is progressing, not stalled; loops are short |
+| **Findings** | Q2 — what each gate found, at what severity, against which rule, and what each fix loop cost | Gates with real, specific findings (not rubber-stamps); findings handed back get fixed and re-checked |
+| **Agents** | Q1 — who does the work, at what cost (tool calls, tokens), and **which model and effort each agent ran**; **Every run** shows each run's own cost | Producers do most tool calls/files; gates are cheaper but catch things; every agent on the configured model (opus) — a cheaper model on a long-running producer can cost more, not less, by needing more turns |
+| **Context** | Q3 — are `domain/`/`standards/` read & used | High-influence docs read *before* writing; catches cite docs |
+| **Errors & friction** *(collapsed)* | Where the run stumbled | Few command errors; few rejected tool calls |
+| **Tool usage** *(collapsed)* | Where time/effort went per tool | No single tool dominating unexpectedly |
+| **Files touched** *(collapsed)* | What was read/written/edited across the whole run | Writes concentrated in the change's area |
+| **Activity feed** *(collapsed)* | The narrative — prompts, decisions, tool calls | Sanity-check the reasoning where a metric surprises you |
 
 ### Reading the gate value (Q2)
 
 A review gate proves its worth by **catching real, specific issues** — not by
-approving everything. In the **Review-gate value** panel each reviewer run shows a
-verdict badge and a snippet of what it caught. In the **Subagent value** table
-each gate shows a catch-rate (`caught N/M`); a gate that shows `0/M — approved
-all` is either downstream of very clean work or is a rubber-stamp. Investigate
-which.
+approving everything. In the **Findings** section each gate run shows its verdict,
+and the findings table lists every finding with its severity, the rule it cites
+and its status in each gate run (for example `handed-back` then
+`fixed-by-rework`). The **Fix loops** table shows what each loop cost. In the
+**Agents** table each gate shows a catch-rate (`caught N/M`); a gate that shows
+`0/M: approved all` is either downstream of very clean work or is a rubber-stamp.
+Investigate which.
 
-> Verdicts are inferred from the reviewer's text (formal tokens like
-> `REQUEST CHANGES`, uppercase severity labels). They're accurate on structured
-> reviewer output but not infallible — the snippet is shown so you can verify.
+> Verdicts come from each gate's `Run-log findings` block. A gate run without one
+> gets a verdict inferred from its text (formal tokens like `REQUEST CHANGES`),
+> marked "inferred" so you know to check it.
 
 ### Reading context ingestion (Q3)
 
 The **Context ingestion** panel scores each `domain/`/`standards/` doc by:
 
-- **Reads** — times an agent opened it;
+- **Reads** — times an agent opened it, with the Read tool or a common shell
+  command (`cat`, `head`, `sed`, `grep`);
 - **Informed** — share of reads that happened *before* the agent's first write
   (so the doc could actually shape the output);
 - **Cited** — times the agent's own reasoning referenced the doc;
@@ -166,14 +170,14 @@ section's actionability against how agents actually used it.
 
 | You want to know… | Look at… |
 |---|---|
-| Is `junior-dev` (or any agent) actually doing the work? | Subagent value table — tool calls / files / tokens per agent |
-| Is a review gate worth keeping? | Review-gate value + its catch-rate in the value table |
+| Is `junior-dev` (or any agent) actually doing the work? | Agents table — tool calls / files / tokens per agent and per run |
+| Is a review gate worth keeping? | Findings (gate runs, findings, fix-loop cost) + its catch-rate in the Agents table |
 | Did the reviewers catch standards violations specifically? | Context ingestion → "catches citing a doc" |
 | Which standard/domain doc pulls its weight? | Context ingestion → Influence column |
 | Which doc is ignored? | Context ingestion → never-read / read-but-never-cited flags |
 | Where did the run waste time or error out? | Errors & friction; Tool usage (total time) |
-| Was the plan wrong (lots of rework)? | Count of `REQUEST CHANGES` / `FAIL` gate runs |
-| How expensive was the run? | Summary cards (tokens); Subagent value (out tokens per agent) |
+| Was the plan wrong (lots of rework)? | Fix loops card and table: how many, and their time and tokens |
+| How expensive was the run? | Cards (input and output tokens); Agents table (tokens per agent and per run) |
 | Did I confuse the agent (guessed wrong)? | Errors & friction → "rejected" entries |
 
 ---

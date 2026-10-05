@@ -138,8 +138,8 @@ Set a project up in this order. [docs/getting-started.md](docs/getting-started.m
 
 `build-use-case` creates a `feat/uc-<n>-<slug>` branch from your base branch (as the profile says),
 runs the agents, stops for your approval at Gate 1 (the plan) and Gate 2 (the finished change), then
-writes `retrospectives/<date>-<change>.md` and `reports/sessions/<session>.report.html`. Commit both
-with the change and open the PR.
+writes `retrospectives/<date>-<change>.md`, `reports/sessions/<session>.report.html` and the run's
+data beside it, `<session>.summary.json`. Commit all three with the change and open the PR.
 
 ## Documentation
 

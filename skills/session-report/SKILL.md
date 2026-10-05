@@ -44,19 +44,22 @@ ls -lt ~/.claude/projects/$(pwd | sed 's#[/.]#-#g')/*.jsonl | head
    python3 "${CLAUDE_PLUGIN_ROOT}/skills/session-report/session_report.py" <log.jsonl> --compact
    ```
 
-   This writes `reports/sessions/<session-id>.report.html` and prints a one-line
-   summary (events, agent runs, issues caught, errors). If the user wants the
-   models, effort and Claude Code version as data, add `--summary`: it prints
-   one JSON object instead (shape in the README).
+   This writes `reports/sessions/<session-id>.report.html` and
+   `<session-id>.summary.json` beside it, and prints a one-line summary (agent
+   runs, findings, fix loops, errors) plus any notes about fallbacks it used. If
+   the user wants the run's data (models, effort, time, tokens, findings, fix
+   loops), add `--summary`: it prints the summary file's JSON instead (shape in
+   the README).
 
 2. Give the user the report path (offer `--open` to open it in a browser) and
-   relay the printed summary line. Reports are meant to be committed with the
-   change they describe.
+   relay the printed summary line and any notes. The report and its summary file
+   are meant to be committed with the change they describe.
 
 3. If the user is drawing conclusions about pipeline efficiency, point them at
-   the **Insights**, **Subagent value & efficiency**, and **Review-gate value**
-   sections — those are the ones built to show whether each subagent is pulling
-   its weight.
+   the cards (time split, fix loops, findings, tokens), the **Findings** section
+   (every gate run's verdict, one row per finding with its status history, and
+   each fix loop's cost) and the **Agents** table (per-agent and per-run cost).
+   Those show whether each agent and gate is pulling its weight.
 
 ## Measuring whether domain & standards context helps
 
@@ -67,9 +70,9 @@ read / are helping or hindering:
   per-doc reads, informed reads (before first write), citations, influence
   score, never-read / read-but-never-cited flags, reviewer catches attributed to
   the doc they cite, and a **Value/1K** (influence per 1000 tokens) signal-density
-  score that flags large-but-rarely-used docs as `wordy / low-signal?`. The
-  **Subagent value** table also shows **which model and effort** each agent ran. Point them
-  there first.
+  score that flags large-but-rarely-used docs as `wordy / low-signal?`. Reads
+  include common shell commands (`cat`, `sed`, `grep`). The **Agents** table also
+  shows **which model and effort** each agent ran. Point them there first.
 - "Helping vs hindering" is a causal question that needs a counterfactual, not a
   single run. Recommend an **ablation**: run the same use case with vs without
   (or with trimmed) context, then diff the two runs:
@@ -88,9 +91,10 @@ read / are helping or hindering:
 - **Subagents are included by default.** Each subagent has its own transcript at
   `<session-id>/subagents/agent-<id>.jsonl`; the script reads them all, folds
   their tool/file activity into the Tool-usage and Files-touched panels, and adds
-  per-subagent workload columns (inner tool calls, files, output tokens) to the
-  value table. Matched to parent Agent calls by prompt. Pass `--no-subagents`
-  for top-level only.
+  per-agent workload columns (tool calls, files, tokens) to the Agents table.
+  Matched to parent Agent calls by the `toolUseId` in each transcript's
+  `.meta.json`, or by prompt for older sessions (the report notes it). Pass
+  `--no-subagents` for top-level only.
 - **Namespaced agents.** Plugin agents appear as `sdlc-pipeline:<name>`; gates
   are matched on the short name, so runs from before and after the plugin
   compare cleanly.
@@ -100,10 +104,12 @@ read / are helping or hindering:
   agents are timed correctly — don't "fix" the near-instant stub yourself.
 - **Resumes & hand-backs:** a `SendMessage` to an already-spawned agent, such as
   an architect revision or a spec re-review, counts as another run of that
-  subagent. A run's result is its `[Subagent hand-back]` peer message when there
+  subagent, and gets its own slice of the agent's transcript (split by start
+  time), so fix runs show their real cost. A run's result is its `[Subagent hand-back]` peer message when there
   is one, because the notification then holds only a pointer. So correction
   loops appear in the run counts and in the gate verdicts.
-- **Verdict detection is heuristic** — it keys off formal tokens
+- **Verdicts come from each gate's `Run-log findings` block** when it has one.
+  Without a block, verdict detection is heuristic and marked "inferred": it keys off formal tokens
   (`REQUEST CHANGES`, `NOT READY`, uppercase `CRITICAL`/`FAIL`, ❌) with a
   "no/0 critical" guard. An approving gate that fixed or logged something
   shows as `FIXED IN PLACE` or `DEFECT LOGGED`, and counts as a catch. It's

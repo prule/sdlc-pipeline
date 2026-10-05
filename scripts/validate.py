@@ -4,11 +4,13 @@
 Checks: the manifests parse and their versions match, every agent and skill has
 `name` and `description` frontmatter (and the name matches its file or folder),
 every standards catalogue rule has Why, Check and Profile lines and no template
-names a stack, the hooks file parses and points at scripts that exist, and every
-Python file compiles. Standard library only. Exits 1 on any failure.
+names a stack, the hooks file parses and points at scripts that exist, every
+Python file compiles, and the session-report self-test passes. Standard library
+only. Exits 1 on any failure.
 """
 import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -119,6 +121,11 @@ for path in sorted(ROOT.rglob("*.py")):
         compile(path.read_text(encoding="utf-8"), str(path), "exec")
     except SyntaxError as e:
         fail(f"{path.relative_to(ROOT)}:{e.lineno}: {e.msg}")
+
+selftest = subprocess.run([sys.executable, str(ROOT / "skills/session-report/selftest.py")],
+                          capture_output=True, text=True)
+if selftest.returncode != 0:
+    fail("skills/session-report/selftest.py failed:\n" + (selftest.stdout + selftest.stderr).strip())
 
 if errors:
     print("\n".join(f"✗ {e}" for e in errors))

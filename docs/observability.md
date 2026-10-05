@@ -5,7 +5,7 @@ Three tools answer three questions about a run:
 | Tool | Answers | Output |
 |------|---------|--------|
 | Event-log hooks | What did this run touch? | `logs/pipeline-events.jsonl`, `logs/pipeline-report.html` |
-| Session report | Did each agent, gate and context doc earn its place? | `reports/sessions/<session>.report.html` |
+| Session report | Did each agent, gate and context doc earn its place? | `reports/sessions/<session>.report.html`, `<session>.summary.json` |
 | Retrospectives | What keeps going wrong, and what should change? | `retrospectives/<date>-<change>.md` (see [pipeline.md](pipeline.md#retrospectives)) |
 
 For cost and token trends over many runs, Claude Code's built-in OpenTelemetry export works alongside
@@ -36,14 +36,20 @@ python3 <plugin>/scripts/pipeline-report.py      # → logs/pipeline-report.html
 ## Session report
 
 The `session-report` skill reads the session transcript itself, not the hook log, so it also works
-for sessions recorded before the plugin was installed. It shows an agent Gantt timeline, a per-agent
-value and efficiency table (including the model and effort each agent ran), every review gate's
-verdict and what it caught, errors and friction, tools and files, and how the domain and standards
-docs were read and cited. The header shows the Claude Code version.
+for sessions recorded before the plugin was installed. It leads with the run's use case, change and
+totals: wall time split into agents working, waiting on you and the orchestrator, fix loops, findings
+and tokens. Then a timeline with one lane per agent, your waits and each fix loop; every gate run's
+verdict and every finding it recorded, with the cost of each fix loop; a per-agent and per-run table
+(model, effort, tool calls, tokens); and how the domain and standards docs were read and cited.
+Errors, tools, files and the activity feed are collapsed below. The header shows the Claude Code
+version.
+
+Each report also writes `<session>.summary.json` beside it: the same facts as data, for comparing
+runs over time. Commit it with the report.
 
 `/sdlc-pipeline:build-use-case` generates one at the end of every run. It runs the report with
-`--summary`, which prints the run's Claude Code version and each agent's model, effort and run count
-as JSON, and copies them into the retrospective's front matter. Transcripts in `~/.claude` are
+`--summary`, which prints the summary file's JSON, and copies the Claude Code version and each
+agent's model, effort and run count into the retrospective's front matter. Transcripts in `~/.claude` are
 eventually deleted, so the committed retrospective is the lasting record of what ran.
 
 Model and effort are as recorded by Claude Code. The model is the full ID from each message, which
