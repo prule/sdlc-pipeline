@@ -41,4 +41,4 @@
 
 - [x] 8.1 Run `python3 scripts/validate.py` (including the self-test) and `claude plugin validate .` and verify both pass
 - [x] 8.2 Regenerate reports for the logbook `47d3f4bc…` and sdlc `4ef81b30…` transcripts into the scratchpad and compare with the old reports. Check: the context panel no longer lists docs as never read when agents read them with `cat`; each resumed run shows its own work; the findings table lists the gates' P, Q and C findings; fix loops match the run's real loops; the human-wait time is plausible against the gate questions
-- [ ] 8.3 In a host project, run `/sdlc-pipeline:build-use-case` with `claude --plugin-dir <this repo>` on a small use case. Check that `reports/sessions/` gains both the HTML report and the `.summary.json`, the retrospective front matter is filled as before, and the commit reminder names the summary file
+- [x] 8.3 In a host project, run `/sdlc-pipeline:build-use-case` with `claude --plugin-dir <this repo>` on a small use case. Check that `reports/sessions/` gains both the HTML report and the `.summary.json`, the retrospective front matter is filled as before, and the commit reminder names the summary file
