@@ -1,0 +1,31 @@
+## 1. Template
+
+- [x] 1.1 Write `templates/backlog.md`: a header comment with the MVP-cut method (design D3, including the test question), then `## MVP`, `## Increments` and `## Later` sections, each heading with its built count, and example entries in the D4 tickbox format (first line with `B-<n>`, title and status; indented Actor, Goal, Why here, Depends on). Verify it names no screen, endpoint, table or technology, that all three status forms from D4 appear, and that only the `built` example is ticked
+
+## 2. plan-use-cases skill
+
+- [x] 2.1 Write `skills/plan-use-cases/SKILL.md` with frontmatter (`name`, a `description` that triggers on planning a backlog, roadmap, MVP or BACKLOG.md of use cases, `argument-hint`). Steps: load the profile, PRD, domain docs, `openspec/config.yaml`, existing use cases, `openspec/specs/` and archived changes; stop and suggest `grill-me` if there is no PRD unless the user continues; follow D3 to draft; interview with `AskUserQuestion` (primary actor and core goal, then the MVP cut with reasons, then increment order); write from `${CLAUDE_PLUGIN_ROOT}/templates/backlog.md`. Verify each requirement in `specs/use-case-backlog/spec.md` that names `plan-use-cases` maps to a step or rule in the skill
+- [x] 2.2 Add the skill's rules: ask the D3 question whenever the user asks to add to the MVP; split exception flows the MVP can launch without into Increments; `B-<n>` ids never renumbered or reused; existing use cases recorded as `written` or `built` with no duplicates; on a re-run show a diff and write only after confirmation, never deleting an entry, moving a `written`/`built` entry or moving a status backwards unless asked; catch up statuses for use cases written or changes archived outside the skills, ticking built entries and fixing section counts; business level only. Verify the "Re-runs keep the backlog's history and catch up its statuses", "Built entries are ticked off" and "Entries have stable ids" requirements are covered
+- [x] 2.3 End the skill with a report: entries per section, the MVP's reason in one line, and the next step `/sdlc-pipeline:write-use-case next`. Verify the wording matches the argument `write-use-case` accepts (task 3.1)
+
+## 3. write-use-case and build-use-case
+
+- [x] 3.1 In `skills/write-use-case/SKILL.md`, update `argument-hint` and steps 1 and 4 per design D5: resolve `B-<n>`, a title or `next` from `BACKLOG.md`; with no argument offer the first unticked entry with no use case; after saving, append `— written: <link>` to the entry's first line; offer (never force) adding an idea with no entry; leave behaviour unchanged when there is no `BACKLOG.md`; if an entry can't be found, say so and don't edit the file. Verify against the "write-use-case drafts from a backlog entry" requirement and both its scenarios
+- [x] 3.2 In `skills/build-use-case/SKILL.md`, add a step between 6 (archive) and 7 (record the run): if `BACKLOG.md` has an entry linked to this use case, tick its box, change it to `— built: <link>, change <name>`, update the section's built count, and name the next entry in the report. Keep step 6's wording and keep step 7 last; add a Rules line that `BACKLOG.md` is never edited before archive. Verify against the "build-use-case marks an entry built only after archive" requirement and that the `run-retrospective` behaviour is unchanged
+- [x] 3.3 Leave the `use-case-writer` agent unchanged (one-shot, never edits `BACKLOG.md`) and say so in `docs/pipeline.md`'s agent table note. Verify the agent file has no diff
+
+## 4. Next-step hints
+
+- [x] 4.1 In `skills/init/SKILL.md`, `skills/write-domain/SKILL.md` and `skills/write-standards/SKILL.md`, change the final suggestion so that, once domain and standards exist and the config is updated, the next step is `/sdlc-pipeline:plan-use-cases` when no `BACKLOG.md` exists, otherwise `/sdlc-pipeline:write-use-case next`. Verify with `grep -n "write-use-case" skills/*/SKILL.md` that every hint follows that order
+
+## 5. Docs, changelog and version
+
+- [x] 5.1 In `docs/getting-started.md`, add step 6 "Plan the use cases" (what `BACKLOG.md` is for, MVP first then one increment at a time, the D3 test question, how statuses update, re-run when the PRD changes) and renumber "Write and build use cases" to 7, including the diagram. Verify the diagram and headings agree
+- [x] 5.2 In `README.md`, add `plan-use-cases` to the Contents table and `templates/backlog.md` to the Templates row, add the step to Quick start, and update the getting-started line in Documentation. In `docs/pipeline.md`, mention that an archived run marks its `BACKLOG.md` entry built. Verify every mention of the setup order lists the same steps
+- [x] 5.3 Add a `[0.6.0]` entry to `CHANGELOG.md` (new skill and template; `write-use-case` and `build-use-case` update `BACKLOG.md` when it exists; host projects need do nothing) and bump the version to `0.6.0` in `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json`. Verify the versions match
+
+## 6. Verification
+
+- [x] 6.1 Run `python3 scripts/validate.py` and `claude plugin validate .` and verify both pass with the new skill's frontmatter
+- [x] 6.2 In a host project with a PRD and domain docs (e.g. a lending library), run `claude --plugin-dir <this repo>` and `/sdlc-pipeline:plan-use-cases`. Check: `BACKLOG.md` has MVP, Increments and Later in that order; the MVP holds only what the primary actor needs to reach the core goal, each with a "Why here"; asking to add a non-essential entry to the MVP triggers the test question and lands it in Increments; out-of-scope PRD items are absent; no entry follows something that depends on it
+- [x] 6.3 In the same project, run `/sdlc-pipeline:write-use-case next` and check the first `not written` entry is drafted and its status becomes `written` with a working link. Run `/sdlc-pipeline:build-use-case` on it, stop at Gate 1, and check `BACKLOG.md` is unchanged; run it again to archive and check the entry is ticked and `built` with the change name, the section's count went up by one, and the report names the next entry. Write a second use case, archive its change with `/opsx:archive` directly, re-run `plan-use-cases`, and check the diff ticks that entry; check no other status or id changed

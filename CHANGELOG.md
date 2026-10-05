@@ -3,6 +3,30 @@
 All notable changes to this plugin. Versions follow [semver](https://semver.org/); before 1.0, a
 change that requires projects to edit their profile bumps the minor version.
 
+## [0.6.0] — 2026-10-05
+
+An MVP-first backlog of use cases, kept up to date as you build. Host projects need do nothing; run
+`/sdlc-pipeline:plan-use-cases` once the PRD, domain and standards are in place.
+
+### Added
+- `/sdlc-pipeline:plan-use-cases`: reads the PRD and domain docs and writes `BACKLOG.md` at the
+  project root. **MVP** holds the fewest use cases that let the primary actor reach the core goal
+  end to end; **Increments** add value one use case at a time, most valuable first; **Later** keeps
+  the rest. It asks *"Can the primary actor reach the core goal without this?"* of every MVP
+  candidate. Re-runs keep ids and statuses, catch up work done outside the skills, and show a diff
+  before writing.
+- `templates/backlog.md`: the backlog's structure, the MVP-cut method and the entry format. Each
+  entry is a checklist item (`B-<n>`), ticked when built; each section heading shows its built count.
+- `docs/getting-started.md` step 6, "Plan the use cases".
+
+### Changed
+- `write-use-case` accepts a backlog entry (`B-3`, its title, or `next`) and links the saved use case
+  from the entry. An idea with no entry is offered to the backlog, never added silently.
+- `build-use-case` ticks the use case's backlog entry after the change is archived, and names the
+  next entry. A run that stops before archive leaves `BACKLOG.md` unchanged.
+- `init`, `write-domain` and `write-standards` suggest `plan-use-cases` before `write-use-case`.
+- Nothing changes in a project without a `BACKLOG.md`.
+
 ## [0.5.0] — 2026-10-05
 
 A session report you can trust for tuning the pipeline, and a summary file per run. Host projects

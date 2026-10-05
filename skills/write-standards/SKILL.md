@@ -87,7 +87,8 @@ Each rule is a `## §<n>` heading with `Why:` (the reason), `Check:` (what a rev
    `/sdlc-pipeline:write-domain` if the project has no domain docs. Once both exist, suggest
    updating `openspec/config.yaml` and the README to point at them (see
    `${CLAUDE_PLUGIN_ROOT}/docs/getting-started.md`, step 5), then
-   `/sdlc-pipeline:write-use-case <idea>`.
+   `/sdlc-pipeline:plan-use-cases` if there is no `BACKLOG.md`, otherwise
+   `/sdlc-pipeline:write-use-case next`.
 
 ## Rules
 

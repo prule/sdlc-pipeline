@@ -30,6 +30,9 @@ which it reads from the profile, `CLAUDE.md`, `standards/` and `domain/`. See
 | `qa` | tests only | Every requirement has a useful test; runs the suite | `opsx:verify` |
 | `senior-dev` | yes (fixes directly) | Final code review; fixes findings, hands back design and scope calls | — |
 
+The `use-case-writer` agent drafts one use case in one shot and never edits `BACKLOG.md`. To write
+the next backlog entry and record it there, use `/sdlc-pipeline:write-use-case next`.
+
 All agents run on **opus**. On a measured run a cheaper implementer made about four times as many
 tool calls and doubled the run's cost for the same review quality, so a cheaper model is a false
 economy here. No agent can spawn agents; only the orchestrator does.
@@ -56,7 +59,10 @@ economy here. No agent can spawn agents; only the orchestrator does.
    - 🚦 **Gate 2, you:** the QA evidence, the review findings and the changed files. You approve the
      archive or not.
 6. **Archive.** `openspec-archive-change` folds the spec delta into `openspec/specs/` and moves the
-   change to `openspec/changes/archive/`.
+   change to `openspec/changes/archive/`. If the project has a `BACKLOG.md` (from
+   `/sdlc-pipeline:plan-use-cases`), the orchestrator then ticks the use case's entry as built,
+   updates the section's count and names the next entry. A run that stops before archive leaves
+   `BACKLOG.md` unchanged.
 7. **Retrospective, always.** See below.
 
 ## Budget guardrails

@@ -20,7 +20,8 @@ stack rules in a short **profile** file (`.claude/sdlc-profile.md`).
 | Skill | `/sdlc-pipeline:init` | Sets a project up: checks OpenSpec, writes the profile, creates the folders. |
 | Skill | `/sdlc-pipeline:write-domain` | Drafts `domain/` from your code and docs, then interviews you to confirm it and fill the gaps. |
 | Skill | `/sdlc-pipeline:write-standards` | Builds `standards/` from a catalogue of architecture and concern rules you keep, adapt or drop, and updates the profile to cite them. |
-| Skill | `/sdlc-pipeline:write-use-case <idea>` | Interactively drafts a business use case from the domain docs and saves it to `use-cases/`. |
+| Skill | `/sdlc-pipeline:plan-use-cases` | Plans the product's use cases in `BACKLOG.md`: the MVP first, then one increment at a time. Entries are ticked as they're built. |
+| Skill | `/sdlc-pipeline:write-use-case <idea \| next>` | Interactively drafts a business use case from the domain docs (or the next backlog entry) and saves it to `use-cases/`. |
 | Skill | `/sdlc-pipeline:build-use-case <path>` | Runs the whole pipeline for one use case, with the two gates, fix loops, budget caps and the retrospective. |
 | Skill | `session-report` | Turns a session log into an HTML report (agent timeline, gate value, errors, context use). Ask *"analyse this session"*. |
 | Agent | `architect` | Use case → OpenSpec change (proposal, design, spec delta, tasks). |
@@ -31,7 +32,7 @@ stack rules in a short **profile** file (`.claude/sdlc-profile.md`).
 | Agent | `use-case-writer` | One-shot use-case drafting (the non-interactive `write-use-case`). |
 | Hooks | `hooks/hooks.json` | Logs every tool call and agent event to `logs/pipeline-events.jsonl` in the project. |
 | Script | `scripts/pipeline-report.py` | Renders that event log as an HTML dashboard. |
-| Templates | `templates/` | Profile, use case, retrospective, retrospectives README, and the standards catalogue (`templates/standards/`). |
+| Templates | `templates/` | Profile, use case, backlog, retrospective, retrospectives README, and the standards catalogue (`templates/standards/`). |
 
 Agents show up namespaced, for example `sdlc-pipeline:architect` in `/agents`, and you can run one
 by itself: *"Use the sdlc-pipeline:qa agent to verify add-product-search"*.
@@ -67,6 +68,7 @@ which drafts the domain docs from the PRD, your code and your docs and interview
 Then run `/sdlc-pipeline:write-standards`: pick an architecture and the concerns you care about,
 keep, adapt or drop each ready-made rule, and it updates the profile to cite the rules you kept.
 When both exist, update `openspec/config.yaml` to point at them and check the README is accurate.
+Then plan the product's use cases with `/sdlc-pipeline:plan-use-cases`.
 They grow from there: `write-use-case` flags domain gaps, the architect adds tasks to record new
 terms and rules, and retrospectives recommend new or clearer standards.
 
@@ -129,22 +131,26 @@ Set a project up in this order. [docs/getting-started.md](docs/getting-started.m
 5. **Update the OpenSpec config and the README.** Point `openspec/config.yaml`'s `context` and
    `rules` at the PRD, `domain/` and `standards/`, and make sure `README.md` describes the product
    and its commands accurately. No skill does this for you.
-6. **Write and build use cases:**
+6. **Plan the use cases.** Run `/sdlc-pipeline:plan-use-cases`. It writes `BACKLOG.md`: the
+   smallest set of use cases that gives you a working product (the MVP), then increments that each
+   make it more valuable. Entries are ticked off as they are built.
+7. **Write and build use cases, one at a time, MVP first:**
 
 ```
-/sdlc-pipeline:write-use-case <rough idea>            # draft use-cases/UC-<n>-<slug>.md, then review it
+/sdlc-pipeline:write-use-case next                    # draft the next backlog entry as use-cases/UC-<n>-<slug>.md
 /sdlc-pipeline:build-use-case use-cases/UC-003-….md   # run the pipeline; answer the two gates
 ```
 
 `build-use-case` creates a `feat/uc-<n>-<slug>` branch from your base branch (as the profile says),
 runs the agents, stops for your approval at Gate 1 (the plan) and Gate 2 (the finished change), then
 writes `retrospectives/<date>-<change>.md`, `reports/sessions/<session>.report.html` and the run's
-data beside it, `<session>.summary.json`. Commit all three with the change and open the PR.
+data beside it, `<session>.summary.json`. Once the change is archived it ticks the use case's entry in
+`BACKLOG.md`. Commit them all with the change and open the PR.
 
 ## Documentation
 
 - **[docs/getting-started.md](docs/getting-started.md)**: setting a project up, in order: PRD,
-  init, domain, standards, then the OpenSpec config and README.
+  init, domain, standards, the OpenSpec config and README, then the use-case backlog.
 - **[docs/pipeline.md](docs/pipeline.md)**: the stages, gates, fix loops, budget guardrails and
   retrospectives, and how to run any phase by hand.
 - **[docs/profile.md](docs/profile.md)**: the project profile, field by field, with a worked example.
@@ -162,7 +168,7 @@ data beside it, `<session>.summary.json`. Commit all three with the change and o
 
 Claude Code checks the marketplace for a new `version` and updates the plugin. To update now, run
 `/plugin marketplace update sdlc-pipeline`, then restart Claude Code. Project-owned files (the
-profile, use cases, retrospectives) are never touched by an update. Read the CHANGELOG for anything
+profile, use cases, `BACKLOG.md`, retrospectives) are never touched by an update. Read the CHANGELOG for anything
 that asks you to change the profile.
 
 ## Developing the plugin

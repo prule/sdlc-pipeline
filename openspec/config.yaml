@@ -10,18 +10,18 @@ context: |
   What the repo is made of. There is no application code; the "code" is prompts plus a little
   Python:
   - agents/<name>.md: subagent definitions (frontmatter: name, description, model, tools).
-  - skills/<name>/SKILL.md: skills (init, write-domain, write-standards, write-use-case,
+  - skills/<name>/SKILL.md: skills (init, write-domain, write-standards, plan-use-cases, write-use-case,
     build-use-case, session-report).
   - hooks/hooks.json + hooks/log-event.py: event logging to the host project's
     logs/pipeline-events.jsonl.
   - scripts/: validate.py (CI static checks), pipeline-report.py (HTML dashboard).
   - templates/: files copied into host projects (profile, use case, retrospective,
-    retrospectives README). templates/standards/ is the standards catalogue: architecture/*.md
+    retrospectives README, backlog). templates/standards/ is the standards catalogue: architecture/*.md
     (pick at most one) and concerns/*.md (pick any), each rule a numbered §n with Why, Check and
     Profile lines and <angle-bracket> stack blanks.
   - docs/: user documentation. README.md is the entry point; docs/getting-started.md gives the
     setup order for a host project (PRD via grill-me, init, write-domain, write-standards, then
-    openspec/config.yaml and README).
+    openspec/config.yaml and README, then plan-use-cases).
   - .claude-plugin/plugin.json and marketplace.json: manifests. Their versions must match.
 
   Hard constraints:
@@ -37,7 +37,8 @@ context: |
     project's settings.json, not shipped.
 
   Domain terms: PRD (the host project's product requirements, written with grill-me), use case
-  (UC-n, in use-cases/), profile (.claude/sdlc-profile.md), domain docs (domain/: overview,
+  (UC-n, in use-cases/), backlog (BACKLOG.md at the host project's root: B-n entries in MVP,
+  Increments and Later, ticked when built), profile (.claude/sdlc-profile.md), domain docs (domain/: overview,
   actors-and-personas, glossary, bounded-contexts, business-rules with BR-<AREA>-<n> ids),
   standards (standards/<file>.md, rules numbered §n and cited from the profile), standards
   catalogue (templates/standards/), change (an OpenSpec change), Gate 1 (plan approval) and Gate 2 (finished-change approval), fix loop,
