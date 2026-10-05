@@ -3,6 +3,21 @@
 All notable changes to this plugin. Versions follow [semver](https://semver.org/); before 1.0, a
 change that requires projects to edit their profile bumps the minor version.
 
+## [0.4.0] — 2026-10-05
+
+An end-to-end testing template for the standards catalogue. Host projects need do nothing. To adopt
+it, re-run `/sdlc-pipeline:write-standards` and pick `e2e-testing`.
+
+### Added
+- `templates/standards/concerns/e2e-testing.md`: three rules for any end-to-end suite (main flows
+  only, locators by role or test id, a known starting state) and four for the Screenplay pattern
+  (tests as the actor's goals, only Interactions touch the UI, assertions through Questions, tools
+  through Abilities). The header defines the Screenplay terms. Tools are blanks the interview fills
+  in, such as Playwright and Serenity/JS.
+
+### Changed
+- `scripts/validate.py` also rejects common end-to-end tool names in catalogue templates.
+
 ## [0.3.0] — 2026-10-05
 
 Two skills that build the domain and standards docs with you. Host projects need do nothing; both

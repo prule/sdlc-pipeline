@@ -7,11 +7,11 @@ The `write-standards` skill turns templates from the plugin's standards catalogu
 ## Requirements
 
 ### Requirement: Catalogue offers architecture and concern templates
-The plugin SHALL ship a read-only standards catalogue with two architecture templates (`layered`, `hexagonal`) and three concern templates (`testing`, `api`, `persistence`). `write-standards` SHALL let the user choose at most one architecture template and any number of concern templates.
+The plugin SHALL ship a read-only standards catalogue with two architecture templates (`layered`, `hexagonal`) and four concern templates (`testing`, `api`, `persistence`, `e2e-testing`). `write-standards` SHALL let the user choose at most one architecture template and any number of concern templates.
 
 #### Scenario: Choosing templates
 - **WHEN** the user runs `write-standards`
-- **THEN** the skill offers `layered` and `hexagonal` as alternatives, and `testing`, `api` and `persistence` as a multiple choice
+- **THEN** the skill offers `layered` and `hexagonal` as alternatives, and `testing`, `api`, `persistence` and `e2e-testing` as a multiple choice
 
 ### Requirement: Catalogue rules are complete and stack-agnostic
 Every rule in a catalogue template SHALL be numbered and SHALL state its reason, its check and the profile sections that cite it. A template SHALL NOT name a language, build tool or framework; stack-specific details SHALL appear as blanks in angle brackets. `scripts/validate.py` SHALL fail when a rule is missing its reason, check or profile sections, when a profile section name isn't one of `implementation-rule`, `plan-review`, `verification` or `code-review`, or when a template contains a name from its list of common languages, build tools and frameworks.
@@ -22,6 +22,17 @@ Every rule in a catalogue template SHALL be numbered and SHALL state its reason,
 
 #### Scenario: Template names a framework
 - **WHEN** a catalogue template contains a framework name on the validator's list
+- **THEN** `python3 scripts/validate.py` exits non-zero and names the template and the word
+
+### Requirement: E2E template applies the Screenplay pattern
+The `e2e-testing` template SHALL define the Screenplay terms (Actor, Ability, Task, Interaction, Question) in its header, and its rules SHALL require that: e2e tests are written as an actor's goals in glossary terms; only Interactions touch the user interface; assertions go through Questions; tools are reached through Abilities; e2e tests cover use case main flows rather than every edge case; and element locators are defined in one place and found by accessible role or test id. The template SHALL name no tool; the browser tool and the Screenplay library SHALL be stack blanks.
+
+#### Scenario: Project keeps the e2e rules
+- **WHEN** the user picks `e2e-testing` in `write-standards`, keeps every rule, and answers that the project uses Playwright with Serenity/JS
+- **THEN** `standards/e2e-testing.md` contains the kept rules with the blanks filled in as Playwright and Serenity/JS, and the profile cites each kept rule in the sections its catalogue entry names
+
+#### Scenario: Template names a tool
+- **WHEN** the `e2e-testing` template contains the word "Playwright"
 - **THEN** `python3 scripts/validate.py` exits non-zero and names the template and the word
 
 ### Requirement: The user keeps, adapts or drops every rule

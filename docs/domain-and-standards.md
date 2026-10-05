@@ -109,6 +109,7 @@ Split them by concern, one file each. For example:
 | `testing.md` | What must be tested and at which level; what a test may mock; test naming. |
 | `api.md` | Contract-first or not; error format; versioning; naming. |
 | `persistence.md` | How schema changes are made; what must never change once released. |
+| `e2e-testing.md` | Which flows get end-to-end tests; how tests find elements; how tests are structured (for example, the Screenplay pattern). |
 | `security.md` | Input validation, secrets, authorisation checks. |
 | `observability.md` | What must be logged or measured, and what must never be logged. |
 
@@ -157,7 +158,7 @@ entry you didn't ask it to. On a new project with no code, the whole thing is an
 | Kind | Templates | Pick |
 |------|-----------|------|
 | Architecture | `layered`, `hexagonal` | at most one |
-| Concerns | `testing`, `api`, `persistence` | any |
+| Concerns | `testing`, `api`, `persistence`, `e2e-testing` | any |
 
 The catalogue names no language, tool or framework. Where a rule needs one, it has a blank such as
 `<migration tool>`, which the skill fills in from your code or your answers.

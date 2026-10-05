@@ -77,7 +77,8 @@ STACK_NAMES = [
     "scala", "elixir", "gradle", "maven", "npm", "yarn", "pnpm", "webpack", "bazel", "spring",
     "django", "flask", "rails", "react", "angular", "vue", "nextjs", "nestjs", "laravel", "dotnet",
     "hibernate", "flyway", "liquibase", "junit", "pytest", "jest", "mockito", "testcontainers",
-    "postgres", "postgresql", "mysql", "mongodb", "kafka",
+    "postgres", "postgresql", "mysql", "mongodb", "kafka", "playwright", "serenity", "cypress",
+    "selenium", "webdriverio", "puppeteer",
 ]
 STACK_RE = re.compile(r"\b(" + "|".join(STACK_NAMES) + r")\b", re.I)
 for path in sorted((ROOT / "templates" / "standards").glob("**/*.md")):
