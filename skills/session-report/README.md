@@ -71,47 +71,86 @@ python3 session_report.py <session.jsonl> [-o OUTPUT] [--out-dir DIR]
                     OTHER is B). See "Measuring whether domain & standards help".
   --label-a/-b      Labels for the two runs in a --compare report.
   --open            Open the finished report in your browser.
-  --summary         After writing the report, print one JSON object instead of
-                    the status lines (see below). build-use-case uses it to
-                    fill the retrospective's front matter.
+  --summary         Print the run summary (the same JSON written to
+                    <session>.summary.json) instead of the status lines.
+                    build-use-case uses it to fill the retrospective's front
+                    matter.
 ```
+
+Every run writes two files: `<session>.report.html` and `<session>.summary.json`
+beside it. Commit both with the change they describe.
 
 No third-party packages — Python 3.8+ standard library only.
 
-### `--summary` output
+### The summary file
+
+`<session>.summary.json` holds the facts a retrospective records and a later trends
+report reads, so old transcripts never need re-parsing. `--summary` prints the same
+object. Abridged:
 
 ```json
 {
-  "session": "ebf31e24-…",
-  "report": "reports/sessions/ebf31e24-….report.html",
-  "claude_code": ["2.1.283", "2.1.284"],
-  "orchestrator": {"model": "claude-opus-5-5", "effort": "medium"},
+  "schema": 1,
+  "session": "47d3f4bc-…",
+  "report": "reports/sessions/47d3f4bc-….report.html",
+  "summary": "reports/sessions/47d3f4bc-….summary.json",
+  "claude_code": "2.1.289",
+  "use_case": "UC-0.1", "change": "uc-0-1-open-logbook",
+  "orchestrator": {"model": "claude-opus-5-5", "effort": "medium", "tokens": {"…": 0}},
   "agents": {
-    "architect":  {"model": "claude-opus-5-5", "effort": "medium", "runs": 6},
-    "junior-dev": {"model": "claude-opus-5-5, claude-sonnet-5", "effort": "medium", "runs": 4}
-  }
+    "qa": {"model": "claude-opus-5-5", "effort": "medium", "runs": 2,
+           "duration_s": 486.6, "tool_calls": 33,
+           "tokens": {"input": 146, "cache_write": 236569, "cache_read": 4851961, "output": 735}}
+  },
+  "time":   {"wall_s": 3729.4, "agents_s": 2050.0, "human_wait_s": 1148.3, "orchestrator_s": 531.1},
+  "tokens": {"input": 846, "cache_write": 1415581, "cache_read": 29865726, "output": 86233},
+  "runs": [{"id": "toolu_…", "agent": "qa", "description": "Verify UC-0.1 implementation",
+            "start": "2026-10-05T02:01:45Z", "duration_s": 433.0, "resumed": false,
+            "linked_by": "id", "tool_calls": 29, "tokens": {"…": 0},
+            "verdict": "handed-back", "verdict_source": "findings", "findings": ["Q1", "…"]}],
+  "findings": [{"id": "Q1", "gate": "qa", "run": "toolu_…", "kind": "test-gap",
+                "severity": "medium", "rule": "standards/testing.md §1", "where": "…",
+                "status": "handed-back", "root_cause": "…", "recommendation": "…"}],
+  "fix_loops": [{"gate": "qa", "started_by": "toolu_…", "findings": ["Q1", "Q2"],
+                 "fix_runs": ["toolu_…"], "recheck_run": "toolu_…",
+                 "duration_s": 257.5, "tool_calls": 12, "tokens": {"…": 0}}],
+  "notes": []
 }
 ```
 
-Models are full IDs. `agents` is keyed by agent type without the plugin namespace. A value that
-differs across runs is a comma-separated list, and `claude_code` is a list when the session spans
-several versions. Anything the transcript didn't record is `unknown`. A session that spawned no
-agents has `"agents": {}`.
+- `schema` goes up when a field changes meaning, so a trends report can tell
+  formats apart.
+- `session`, `report`, `claude_code`, `orchestrator.model`/`effort` and
+  `agents.<type>.model`/`effort`/`runs` are the fields `build-use-case` copies into
+  the retrospective. Models are full IDs; `agents` is keyed by agent type without
+  the plugin namespace. A value that differs across runs is a comma-separated
+  list, and `claude_code` is a list when the session spans several versions.
+  Anything the transcript didn't record is `unknown`.
+- Tokens are counts only, never prices.
+- `findings` has one entry per finding per gate run, so a finding a re-check
+  confirms as fixed appears twice, with each run's status.
+- `notes` lists any fallbacks the analysis used (see "How it works").
+- A session that spawned no agents has `"agents": {}` and empty `runs` and
+  `fix_loops`.
 
 ## What's in the report
 
+The report is ordered for tuning the pipeline: outcome and totals first, then the
+run, then the evidence. Diagnostics are collapsed until you open them.
+
 | Section | What it tells you |
 |---|---|
-| **Summary cards** | Duration, agent runs, tool calls, errors, rejections, issues caught by gates, tokens. |
-| **Insights** | Auto-generated callouts: which gates proved their value, which approved everything (low signal), where errors clustered, the slowest agent. |
-| **Agent timeline** | Gantt of every agent/subagent run, coloured by type. Bar width = real duration; green outline = caught an issue; red = failed/rejected; hatched = still pending. With `--compact`, idle gaps are collapsed but widths stay proportional. |
-| **Subagent value & efficiency** | Per-subagent table: **model used**, **effort** (as recorded by Claude Code; `unknown` if not), runs, total time, average, inner tool calls/files/tokens, gate catch-rate, errors. Reviewers show `caught N/M`; a gate that approves everything is flagged. |
-| **Review-gate value** | Each review run (`spec-reviewer`, `senior-dev`, `qa`, …) with a verdict badge and a snippet of *what it caught* — the evidence that the gates are worth their cost. |
-| **Errors & friction** | Failed commands, failed agents, and tool calls you rejected (where the agent guessed wrong). Your list of things to look into. |
-| **Tool usage** | Every tool called (top-level **and** inside subagents), with call count, total time spent, and error count. |
-| **Files touched** | Every file read / written / edited across the whole run (subagents included), ranked by activity, with per-operation counts and how many were written fresh (no prior read). |
-| **Context ingestion** | Whether the curated docs (`domain/` and `standards/` by default, see `--context-dirs`) are actually reaching the agents — see below. |
-| **Activity feed** | Chronological, filterable stream: prompts, decisions, tool calls (with durations), agent results, thinking. |
+| **Header and cards** | The use case and change (when the session names them). Wall time split into agents working, waiting on you and the orchestrator; agent runs and how many were resumed; fix loops and their rework time; distinct findings by severity; output and input tokens (with cache share); errors. |
+| **Notes** | Any fallback the analysis used, such as runs linked by prompt or resume markers that didn't match. Absent when there were none. |
+| **Insights** | Which gates caught something, what their fix loops cost, where errors clustered, the slowest run. |
+| **Timeline** | One lane per agent type; resumed runs share their agent's lane (dark left edge). A **you** lane shows waits on the human; a **fix loops** lane brackets each loop from the gate run to its re-check. Green outline = caught something; red = failed; hatched = pending. Hover a bar for its tool calls and tokens. With `--compact`, idle gaps are collapsed but widths stay proportional. |
+| **Findings** | **Gate runs**: every gate run with its verdict, whether the verdict came from its findings block or was inferred from keywords, and its summary line. **Findings**: one row per finding, with severity, kind, the rule it cites, and its status in each gate run that mentioned it (for example `handed-back` then `fixed-by-rework`); hover for where it was and the recommendation. **Fix loops**: what each gate sent back, the run that fixed it, the run that re-checked it, and the cost. |
+| **Agents** | Per agent type: model, effort (as recorded; `unknown` if not), runs, time, tool calls, files, input, cache-write, cache-read and output tokens, gate catch rate, errors. **Every run** (expandable) lists each run with its own cost. |
+| **Context** | Whether the curated docs (`domain/` and `standards/` by default, see `--context-dirs`) reach the agents; see below. |
+| **Errors & friction** *(collapsed)* | Failed commands, failed agents, and tool calls you rejected. |
+| **Tool usage** *(collapsed)* | Every tool called, top-level and inside subagents, with count, time and errors. |
+| **Files touched** *(collapsed)* | Every project file read, written or edited across the run, including through shell commands, relative to the project root. Claude Code's own files (tool results, transcripts, the scratchpad) are left out. |
+| **Activity feed** *(collapsed)* | Chronological, filterable stream: prompts, decisions, tool calls, agent results, thinking. |
 
 ## Subagents are included
 
@@ -124,12 +163,16 @@ reads those too and folds them in:
   every subagent — so you see all files read/written/edited across the run, not
   just the handful the orchestrator touched directly (e.g. 335 files instead of
   67 in one sample run).
-- The **Subagent value & efficiency** table gains per-subagent columns —
-  inner **Tool calls**, **Files**, and **Out tokens** — so you can see who did
-  the heavy lifting (typically `junior-dev`) versus the lighter review gates.
+- The **Agents** table gains per-agent columns (**Tool calls**, **Files** and the
+  four token counts), so you can see who did the heavy lifting (typically
+  `junior-dev`) versus the lighter review gates. **Every run** breaks that down
+  per run, including resumed fix runs.
 
-Each transcript is matched back to its parent Agent call by prompt. Pass
-`--no-subagents` to report the top-level session only.
+Each transcript is matched to the Agent call that started it through the
+`toolUseId` in the `agent-<id>.meta.json` Claude Code writes beside it. Older
+sessions without meta files fall back to matching the prompt, and the report says
+how many runs were linked that way. Pass `--no-subagents` to report the top-level
+session only.
 
 Plugin agents are namespaced (`sdlc-pipeline:qa`). The report shows the full
 name and matches review gates on the short name, so `qa` and
@@ -144,7 +187,8 @@ handles the third.
 
 **1. Ingestion — are they read?** The **Context ingestion** panel lists every
 `domain/*` and `standards/*` doc with:
-- **Reads** — how many times agents opened it (across all subagents);
+- **Reads** — how many times agents opened it (across all subagents), with the
+  Read tool or common shell commands (`cat`, `head`, `tail`, `sed`, `grep`);
 - **Informed** — the share of those reads that happened *before* the agent's
   first write (i.e. the doc could actually shape the output, vs. being opened
   after the fact);
@@ -207,9 +251,13 @@ Four details that matter for accuracy:
    it already spawned (`SendMessage` to that agent's id: an architect revision or
    a spec re-review), that counts as **another run** of the same subagent. The
    agent id is read from the spawn's result (`agentId: …`), or from `resumedAgentId`
-   in the `SendMessage` result. A resumed run inherits the subagent type, model and effort.
-   Its inner workload stays on the first run, because the resume appends to the
-   same transcript and would otherwise be counted twice.
+   in the `SendMessage` result. A resume appends to the agent's first transcript,
+   so the script splits that transcript by the runs' start times: each run gets
+   the tool calls, tokens, files and time from its own slice. The "coordinator
+   sent a message" line in the transcript is only a cross-check, because its
+   wording is undocumented; if the counts differ, the report adds a note. If a
+   resumed run has no start time, its agent's work stays on the first run, with a
+   note.
 4. **Hand-back reports.** A subagent can deliver its final report as a peer
    message (a user event with `origin.kind == "peer"` and a `[Subagent hand-back]`
    body). Its `<task-notification>` then carries only a pointer ("delivered to you
@@ -217,8 +265,22 @@ Four details that matter for accuracy:
    that arrives before that agent's next run. That report becomes the run's result
    (the text verdicts are read from), and the hand-back time becomes the run's end.
 
-**Verdict detection is heuristic.** Whether a review "caught something" is
-inferred from the result text — formal tokens (`REQUEST CHANGES`, `NOT READY`),
+5. **Shell file access.** Bash commands are parsed for the common file forms:
+   `cat`, `head`, `tail`, `less`, `wc`, `sed` (`-i` counts as a write), `grep`,
+   `rg`, `>` and `>>` redirects, `tee`, `cp` and `mv`. Paths are resolved against
+   the command's working directory; a `cd` inside the command, globs and variables
+   are ignored. These counts are close estimates, labelled "incl. shell".
+
+**Verdicts come from findings when they can.** Every gate ends its report with a
+`## Run-log findings` block (`P1`, `Q1`, `C1`… with kind, severity, rule, where and
+status). The script parses it: a run that handed any finding back is
+`handed-back`; one that fixed something itself is `fixed-in-place`; otherwise it
+is `clean`. Fix loops start at a `handed-back` run. The fixes are the following
+resumed runs (or agents that already ran before the gate); a fresh agent of a new
+type starts the next phase. The next run of the same gate is the re-check.
+
+**Without a findings block, the verdict is inferred** and marked so. Whether a
+review "caught something" is then guessed from the result text — formal tokens (`REQUEST CHANGES`, `NOT READY`),
 uppercase severity labels (`CRITICAL`, `FAIL`, ❌), guarded against phrases like
 "no CRITICAL issues" and adjectival "critically". An approving gate that still
 found or fixed something also counts as a catch. **FIXED IN PLACE** means the
@@ -231,6 +293,8 @@ lets you verify, and unclassifiable runs show a verdict of `—`.
 ## Files
 
 - `session_report.py` — the generator (stdlib only).
+- `selftest.py` — builds synthetic sessions in a temp folder and checks the
+  analysis against the spec. `scripts/validate.py` runs it in CI.
 - `SKILL.md` — the skill definition Claude loads.
 - `README.md` — this file.
 - Reports land in `reports/sessions/` under the directory you run it from (the

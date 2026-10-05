@@ -3,6 +3,35 @@
 All notable changes to this plugin. Versions follow [semver](https://semver.org/); before 1.0, a
 change that requires projects to edit their profile bumps the minor version.
 
+## [0.5.0] — 2026-10-05
+
+A session report you can trust for tuning the pipeline, and a summary file per run. Host projects
+need do nothing; commit the new `<session>.summary.json` with each report.
+
+### Added
+- `<session>.summary.json` beside every session report: the existing `--summary` fields plus each
+  run's cost, every gate finding, fix loops, the time breakdown and token counts (`schema: 1`).
+  `--summary` prints the same object. A later trends report can work from these files alone.
+- Report sections for tuning: gate runs and one row per finding with its status history, fix loops
+  and what they cost, the time split between agents, waiting on you and the orchestrator, and
+  input, cache-write, cache-read and output tokens per run, per agent and in total.
+- `skills/session-report/selftest.py`: synthetic sessions that check the analysis. `validate.py`
+  runs it.
+
+### Changed
+- Subagent transcripts are linked to their runs by tool-use id, with prompt matching only as a
+  fallback the report notes.
+- A resumed agent's work is credited to the resumed run, so fix runs show their real cost.
+- Reads and writes through common shell commands (`cat`, `sed`, `grep`, redirects) count in the
+  context and files panels. Claude Code's own files are left out, and paths are relative to the
+  project. Docs that agents read with `cat` no longer show as "never read".
+- Gate verdicts come from each gate's Run-log findings block; keyword verdicts are a marked
+  fallback.
+- The report leads with the use case, change and totals, then the timeline (one lane per agent,
+  your waits, fix loops), findings, agents and context. Errors, tools, files and the activity feed
+  are collapsed.
+- `build-use-case` reminds you to commit the summary file with the report.
+
 ## [0.4.1] — 2026-10-05
 
 Documentation of the order to set a project up in. Host projects need do nothing.

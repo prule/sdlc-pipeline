@@ -35,7 +35,9 @@ import argparse
 import bisect
 import html
 import json
+import posixpath
 import re
+import shlex
 import sys
 import webbrowser
 from collections import Counter, defaultdict
@@ -222,27 +224,155 @@ WRITE_TOOLS = {"Write"}
 EDIT_TOOLS = {"Edit", "MultiEdit", "NotebookEdit"}
 
 
+# --------------------------------------------------------------------------- #
+# Shell file access — agents read and write files with cat, sed, grep and
+# redirects as often as with the file tools. Best effort: common forms only.
+# --------------------------------------------------------------------------- #
+
+SHELL_READERS = {"cat", "less", "more", "wc", "head", "tail", "sed", "grep", "egrep", "rg"}
+# options that take a value, per command (so `head -n 5` skips the 5, but `sed -n`
+# and `grep -n` don't swallow the script or pattern)
+_TAKES_VALUE = {
+    "head": {"-n", "-c"}, "tail": {"-n", "-c"},
+    "sed": {"-e", "-f"},
+    "grep": {"-e", "-f", "-A", "-B", "-C", "-m", "--max-count"},
+    "rg": {"-e", "-f", "-A", "-B", "-C", "-m", "--max-count", "-g", "--glob", "-t", "--type"},
+}
+_TAKES_VALUE["egrep"] = _TAKES_VALUE["grep"]
+_HEREDOC = re.compile(r"<<-?\s*(['\"]?)(\w+)\1([^\n]*)\n.*?\n[ \t]*\2[ \t]*(?=\n|$)", re.S)
+
+
+def _file_args(args, pattern_first, takes_value=()):
+    """Non-flag arguments, skipping option values and (for sed/grep) the script
+    or pattern unless it was given with -e/-f."""
+    out, skip, explicit = [], False, False
+    for a in args:
+        if skip:
+            skip = False
+            continue
+        if a.startswith("-") and a != "-":
+            if a in ("-e", "-f", "--regexp", "--file"):
+                explicit = True
+            if a in takes_value:
+                skip = True
+            continue
+        out.append(a)
+    if pattern_first and not explicit and out:
+        out = out[1:]
+    return out
+
+
+def _simple_command(toks):
+    ops, args, i = [], [], 0
+    while i < len(toks):
+        t = toks[i]
+        if t[0] in "<>&" and set(t) <= set("<>&|"):
+            target = toks[i + 1] if i + 1 < len(toks) else ""
+            if "&" in t and ">" in t and t != "&>" and t != "&>>":
+                i += 2                      # >&2, 2>&1: a file descriptor, not a file
+                continue
+            if target:
+                ops.append(("write" if ">" in t else "read", target))
+            i += 2
+            continue
+        if t.isdigit() and i + 1 < len(toks) and toks[i + 1].startswith(">"):
+            i += 1                          # the 2 in 2>file
+            continue
+        args.append(t)
+        i += 1
+    while args and (re.match(r"^\w+=", args[0]) or args[0] in ("sudo", "command", "exec", "time")):
+        args = args[1:]
+    if not args:
+        return ops
+    name, rest = posixpath.basename(args[0]), args[1:]
+    if name == "sed":
+        in_place = any(a.startswith("-i") or a == "--in-place" for a in rest)
+        files = _file_args([a for a in rest if not a.startswith("-i")], True, _TAKES_VALUE["sed"])
+        ops += [("write" if in_place else "read", f) for f in files]
+    elif name in ("grep", "egrep", "rg"):
+        ops += [("read", f) for f in _file_args(rest, True, _TAKES_VALUE[name])]
+    elif name in SHELL_READERS:
+        ops += [("read", f) for f in _file_args(rest, False, _TAKES_VALUE.get(name, ()))]
+    elif name == "tee":
+        ops += [("write", f) for f in _file_args(rest, pattern_first=False)]
+    elif name in ("cp", "mv"):
+        files = _file_args(rest, pattern_first=False)
+        if len(files) >= 2:
+            ops += [("read", f) for f in files[:-1]] + [("write", files[-1])]
+    return ops
+
+
+def _pathlike(p):
+    return (bool(p) and not p.startswith(("-", "$", "/dev/")) and not p.endswith("/") and not re.search(r"[*?\[\]{}$`]", p)
+            and not p.isdigit() and ("/" in p or "." in p.lstrip(".")))
+
+
+def shell_file_ops(command, cwd=None):
+    """[(op, path)] for the files a shell command reads or writes with common file
+    commands (cat, head, tail, sed, grep, redirects, tee, cp, mv). Relative paths
+    are resolved against cwd; a `cd` inside the command is ignored."""
+    ops = []
+    for line in _HEREDOC.sub(r"\3", command or "").splitlines():
+        try:
+            lex = shlex.shlex(line, posix=True, punctuation_chars=True)
+            lex.whitespace_split = True
+            toks = list(lex)
+        except ValueError:
+            continue
+        cmd = []
+        for tok in toks + [";"]:
+            if set(tok) <= set(";&|()") and tok not in ("&>", "&>>"):
+                ops += _simple_command(cmd)
+                cmd = []
+            else:
+                cmd.append(tok)
+    out = []
+    for op, p in ops:
+        if not _pathlike(p):
+            continue
+        if cwd and not p.startswith(("/", "~")):
+            p = posixpath.normpath(posixpath.join(cwd, p))
+        out.append((op, p))
+    return out
+
+
+INTERNAL_PATH = re.compile(r"/\.claude/|/tool-results/|/subagents/|/scratchpad/|^/private/tmp/claude-"
+                           r"|^/tmp/claude-")
+
+
+def is_internal(path):
+    """Claude Code's own files: transcripts, tool results, the scratchpad."""
+    return bool(INTERNAL_PATH.search(path or ""))
+
+
 def file_ops_from_tools(tools):
-    files = defaultdict(lambda: {"read": 0, "write": 0, "edit": 0,
+    files = defaultdict(lambda: {"read": 0, "write": 0, "edit": 0, "shell": 0,
                                  "first": None, "last": None})
-    for t in tools:
-        inp = t["input"] if isinstance(t["input"], dict) else {}
-        path = inp.get("file_path") or inp.get("notebook_path")
-        if not path:
-            continue
+
+    def note(path, op, ts, shell=False):
+        if not path or is_internal(path):
+            return
         rec = files[path]
-        if t["name"] in READ_TOOLS:
-            rec["read"] += 1
-        elif t["name"] in WRITE_TOOLS:
-            rec["write"] += 1
-        elif t["name"] in EDIT_TOOLS:
-            rec["edit"] += 1
-        else:
-            continue
-        ts = t.get("start")
+        rec[op] += 1
+        rec["shell"] += int(shell)
         if ts:
             rec["first"] = ts if rec["first"] is None else min(rec["first"], ts)
             rec["last"] = ts if rec["last"] is None else max(rec["last"], ts)
+
+    for t in tools:
+        inp = t["input"] if isinstance(t["input"], dict) else {}
+        ts = t.get("start")
+        if t["name"] == "Bash":
+            for op, path in shell_file_ops(inp.get("command"), t.get("cwd")):
+                note(path, op, ts, shell=True)
+            continue
+        path = inp.get("file_path") or inp.get("notebook_path")
+        if t["name"] in READ_TOOLS:
+            note(path, "read", ts)
+        elif t["name"] in WRITE_TOOLS:
+            note(path, "write", ts)
+        elif t["name"] in EDIT_TOOLS:
+            note(path, "edit", ts)
     return dict(files)
 
 
@@ -258,12 +388,13 @@ def tool_stats_from_tools(tools):
 
 
 def merge_file_ops(dicts):
-    out = defaultdict(lambda: {"read": 0, "write": 0, "edit": 0,
+    out = defaultdict(lambda: {"read": 0, "write": 0, "edit": 0, "shell": 0,
                                "first": None, "last": None})
     for d in dicts:
         for path, r in d.items():
             o = out[path]
-            o["read"] += r["read"]; o["write"] += r["write"]; o["edit"] += r["edit"]
+            for k in ("read", "write", "edit", "shell"):
+                o[k] += r.get(k, 0)
             for key in ("first", "last"):
                 if r[key]:
                     o[key] = r[key] if o[key] is None else (
@@ -309,20 +440,39 @@ def correlate_tools(events):
             for b in blocks(m):
                 if b.get("type") == "tool_use":
                     uses[b["id"]] = {"name": b.get("name", "?"),
-                                     "input": b.get("input") or {}, "ts": ts}
+                                     "input": b.get("input") or {}, "ts": ts,
+                                     "cwd": ev.get("cwd")}
     tools = []
     for tid, u in uses.items():
         r = results.get(tid)
         dur = (r["ts"] - u["ts"]).total_seconds() if (r and r["ts"] and u["ts"]) else None
         tools.append({"id": tid, "name": u["name"], "input": u["input"],
-                      "start": u["ts"], "duration": dur,
+                      "start": u["ts"], "duration": dur, "cwd": u["cwd"],
                       "error": r["is_error"] if r else None})
     return tools, dict(tokens), first, last, first_prompt
 
 
+def transcript_stats(events):
+    """The work recorded in a transcript, or in one run's slice of it."""
+    tools, tokens, first, last, prompt = correlate_tools(events)
+    dur = (last - first).total_seconds() if first and last else None
+    return {
+        "tools": tools,
+        "file_ops": file_ops_from_tools(tools),
+        "tool_stats": tool_stats_from_tools(tools),
+        "tool_calls": len(tools), "tokens": tokens,
+        "duration": dur, "prompt": prompt,
+        "errors": sum(1 for t in tools if t["error"]),
+        "ctx": context_signals(events),
+        "model": primary_model(events),
+        "effort": recorded_effort(events),
+    }
+
+
 def load_subagents(session_path):
-    """Parse every subagents/agent-*.jsonl beside the main log.
-    Returns {agentId: stats} keyed by the transcript's own agentId."""
+    """Parse every subagents/agent-*.jsonl beside the main log, with the
+    agent-*.meta.json Claude Code writes beside it (toolUseId, agentType…) when
+    there is one. Returns {agentId: stats} keyed by the transcript's agentId."""
     sub_dir = Path(session_path).with_suffix("") / "subagents"
     if not sub_dir.is_dir():
         return {}
@@ -332,19 +482,12 @@ def load_subagents(session_path):
         events = load_events(f)
         if not events:
             continue
-        tools, tokens, first, last, prompt = correlate_tools(events)
-        dur = (last - first).total_seconds() if first and last else None
-        out[aid] = {
-            "agent_id": aid, "tools": tools,
-            "file_ops": file_ops_from_tools(tools),
-            "tool_stats": tool_stats_from_tools(tools),
-            "tool_calls": len(tools), "tokens": tokens,
-            "duration": dur, "prompt": prompt,
-            "errors": sum(1 for t in tools if t["error"]),
-            "ctx": context_signals(events),
-            "model": primary_model(events),
-            "effort": recorded_effort(events),
-        }
+        try:
+            meta = json.loads(f.with_suffix(".meta.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            meta = {}
+        out[aid] = {**transcript_stats(events), "agent_id": aid,
+                    "events": events, "meta": meta if isinstance(meta, dict) else {}}
     return out
 
 
@@ -416,6 +559,13 @@ def context_signals(events):
                     mt = CONTEXT_RE.search(str(inp.get("file_path", "")))
                     if mt:
                         reads.append((mt.group(0), ts))
+                elif name == "Bash":
+                    for op, path in shell_file_ops(inp.get("command"), ev.get("cwd")):
+                        if op == "write" and ts:
+                            first_write = ts if first_write is None else min(first_write, ts)
+                        mt = CONTEXT_RE.search(path) if op == "read" else None
+                        if mt:
+                            reads.append((mt.group(0), ts))
             elif bt == "text" and ev.get("type") == "assistant":
                 for mt in CONTEXT_RE.findall(b.get("text", "")):
                     refs[mt] += 1
@@ -485,30 +635,84 @@ def _norm_prompt(s):
     return re.sub(r"\s+", " ", s or "").strip()[:120]
 
 
+RESUME_MARKER = "The coordinator sent a message"
+
+
 def link_subagents(data, subs):
-    """Attach each subagent transcript to its parent Agent record (matched by
-    prompt) and build session-wide merged file/tool aggregates."""
-    by_prompt = {_norm_prompt(s["prompt"]): s for s in subs.values()}
-    for a in data["agents"]:
-        s = by_prompt.get(_norm_prompt(a["input"].get("prompt")))
-        a["sub"] = s
-        a["model"] = s.get("model") if s else None
-        a["effort"] = s.get("effort") if s else "unknown"
-    # a resumed run appends to its first run's transcript: inherit the model and
-    # effort, but leave sub=None so its inner workload isn't counted twice
-    by_id = {a["id"]: a for a in data["agents"]}
-    for a in data["agents"]:
+    """Attach each subagent transcript to the Agent call that started it, then
+    split it between that run and every resumed run of the same agent, so each
+    run carries its own work. Builds the session-wide file/tool aggregates."""
+    notes = data.setdefault("notes", [])
+    by_tid = {s["meta"]["toolUseId"]: s for s in subs.values() if s["meta"].get("toolUseId")}
+    by_prompt = {_norm_prompt(s["prompt"]): s for s in subs.values()
+                 if not s["meta"].get("toolUseId")}
+    agents = data["agents"]
+    n_prompt = 0
+    for a in agents:
+        a.update({"sub": None, "linked_by": None, "model": None, "effort": "unknown"})
+    for a in agents:
         if a.get("resume"):
-            parent = by_id.get(a.get("parent_id")) or {}
-            a["sub"] = None
-            a["model"] = parent.get("model")
-            a["effort"] = parent.get("effort") or "unknown"
+            continue
+        s = by_tid.get(a["id"])
+        if s:
+            a["linked_by"] = "id"
+        else:
+            s = by_prompt.get(_norm_prompt(a["input"].get("prompt")))
+            if s:
+                a["linked_by"] = "prompt"
+                n_prompt += 1
+        if not s:
+            continue
+        runs = sorted([a] + [r for r in agents if r.get("resume") and r.get("parent_id") == a["id"]],
+                      key=lambda r: r["start"] or datetime.max.replace(tzinfo=timezone.utc))
+        for r in runs[1:]:
+            r["linked_by"] = "resume"
+        split_runs(runs, s, notes)
+    if n_prompt:
+        notes.append(f"{n_prompt} run(s) linked by prompt: their transcripts record no "
+                     "tool-use id, so two runs that open with the same prompt could be mixed up.")
     data["files_all"] = merge_file_ops(
         [data["files"]] + [s["file_ops"] for s in subs.values()])
     data["tool_stats_all"] = merge_tool_stats(
         [data["tool_stats"]] + [s["tool_stats"] for s in subs.values()])
     data["subagents"] = subs
     data["has_sub"] = True
+
+
+def split_runs(runs, s, notes):
+    """Give each run the slice of transcript s that falls between its start and the
+    next run's start. The resume markers in the transcript are only a cross-check:
+    their wording is undocumented."""
+    name = runs[0]["subagent"]
+    whole = {k: v for k, v in s.items() if k not in ("events", "meta")}
+    if len(runs) == 1:
+        runs[0].update({"sub": whole, "model": s["model"], "effort": s["effort"]})
+        return
+    starts = [r["start"] for r in runs[1:]]
+    if any(st is None for st in starts):
+        runs[0].update({"sub": whole, "model": s["model"], "effort": s["effort"]})
+        for r in runs[1:]:
+            r.update({"model": s["model"], "effort": s["effort"]})
+        notes.append(f"{name}: a resumed run has no start time, so all of its work is "
+                     "credited to the first run.")
+        return
+    buckets, i = [[] for _ in runs], 0
+    for ev in s["events"]:
+        t = parse_ts(ev.get("timestamp"))
+        if t:
+            i = bisect.bisect_right(starts, t)
+        buckets[i].append(ev)
+    for r, evs in zip(runs, buckets):
+        st = transcript_stats(evs)
+        st["prompt"] = st["prompt"] or s["prompt"]
+        r.update({"sub": {**st, "agent_id": s["agent_id"]},
+                  "model": st["model"] or s["model"],
+                  "effort": st["effort"] if st["effort"] != "unknown" else s["effort"]})
+    markers = sum(1 for ev in s["events"] if ev.get("type") == "user"
+                  and msg_text(ev.get("message")).lstrip().startswith(RESUME_MARKER))
+    if markers != len(runs) - 1:
+        notes.append(f"{name}: {len(runs) - 1} resumed run(s) but {markers} resume marker(s) "
+                     "in its transcript; work is split by the runs' start times.")
 
 
 # --------------------------------------------------------------------------- #
@@ -528,9 +732,12 @@ def analyze(events):
     first_ts = last_ts = None
     meta = {}
     versions = []                         # every Claude Code version, in order seen
+    waits = []                            # (last event, user prompt): time waiting on the human
+    prev_ts = None
 
     for ev in events:
         ts = parse_ts(ev.get("timestamp"))
+        before, prev_ts = prev_ts, (ts or prev_ts)
         if ts:
             first_ts = ts if first_ts is None else min(first_ts, ts)
             last_ts = ts if last_ts is None else max(last_ts, ts)
@@ -574,6 +781,8 @@ def analyze(events):
             # system-reminders, local-command output, etc.)
             if prompt and not has_result and not prompt.startswith("<"):
                 timeline.append({"ts": ts, "kind": "user", "text": prompt})
+                if before and ts and ts > before:
+                    waits.append((before, ts))
 
         elif etype == "assistant" and isinstance(msg, dict):
             models[msg.get("model", "unknown")] += 1
@@ -594,7 +803,7 @@ def analyze(events):
                     name = b.get("name", "?")
                     tool_counter[name] += 1
                     tool_uses[tid] = {"name": name, "input": b.get("input") or {},
-                                      "ts": ts}
+                                      "ts": ts, "cwd": ev.get("cwd")}
                     timeline.append({"ts": ts, "kind": "tool", "tool": name,
                                      "input": b.get("input") or {}, "id": tid})
 
@@ -624,7 +833,7 @@ def analyze(events):
             "id": tid, "name": use["name"], "input": use["input"],
             "start": use["ts"], "end": end, "duration": dur,
             "error": is_error, "result": result_text, "status": status,
-            "pending": end is None,
+            "pending": end is None, "cwd": use.get("cwd"),
         }
         tools.append(rec)
 
@@ -687,10 +896,20 @@ def analyze(events):
                           "duration": (hb["ts"] - r["start"]).total_seconds()})
 
     for a in agents:
-        a.update({"verdict": None, "caught": None, "issues": None, "snippet": None})
+        a.update({"verdict": None, "verdict_source": None, "caught": None, "issues": None,
+                  "snippet": None, "findings": None})
         if a["gate"] and a["result"]:
-            v, c, n, s = classify_review(a["result"])
-            a.update({"verdict": v, "caught": c, "issues": n, "snippet": s})
+            found = parse_findings(a["result"])
+            if found is not None:
+                v = findings_verdict(found)
+                n = sum(1 for f in found if f["status"] in ("handed-back", "fixed-in-place"))
+                a.update({"verdict": v, "verdict_source": "findings", "findings": found,
+                          "caught": v in ("handed-back", "fixed-in-place"), "issues": n,
+                          "snippet": first_line(a["result"])})
+            else:
+                v, c, n, s = classify_review(a["result"])
+                a.update({"verdict": v, "verdict_source": "inferred",
+                          "caught": c, "issues": n, "snippet": s})
 
     by_id = {t["id"]: t for t in tools}
     agent_by_id = {a["id"]: a for a in agents}
@@ -723,8 +942,248 @@ def analyze(events):
         "tool_counter": tool_counter, "tool_stats": dict(tool_stats),
         "tools": tools, "agents": agents, "files": dict(files),
         "ctx_main": context_signals(events),
-        "errors": errors, "timeline": timeline,
+        "errors": errors, "timeline": timeline, "waits": waits, "notes": [],
     }
+
+
+# --------------------------------------------------------------------------- #
+# Gate findings — the "Run-log findings" block each gate ends its report with:
+#   - **Q1** · kind: test-gap · severity: high · rule: `standards/x.md §2`
+#     · where: `src/a.ts:10` · status: handed-back (defect for the junior dev)
+#     - root cause: ...
+#     - recommendation: ...
+# --------------------------------------------------------------------------- #
+
+_FINDINGS_HEAD = re.compile(r"^[#*\s]*Run-log findings[*:\s]*$", re.M | re.I)
+_FINDING = re.compile(r"^\s*[-*]\s+\*\*([A-Z]+\d+)\*\*\s*(.*)$")
+_SUB_BULLET = re.compile(r"^[-*]\s+(root cause|recommendation)\s*:\s*(.*)$", re.I)
+
+
+def _clean(v):
+    v = re.sub(r"\s+", " ", (v or "").replace("`", "")).strip()
+    return None if v in ("", "—", "-", "–") else v
+
+
+def parse_findings(text):
+    """The findings in a gate's Run-log findings block: a list of dicts (empty when
+    the block says None), or None when the text has no block at all."""
+    m = _FINDINGS_HEAD.search(text or "")
+    if not m:
+        return None
+    body = text[m.end():]
+    nxt = re.search(r"^#{1,6}\s", body, re.M)
+    if nxt:
+        body = body[:nxt.start()]
+    entries, cur = [], None
+    for line in body.splitlines():
+        fm = _FINDING.match(line)
+        if fm:
+            cur = {"id": fm.group(1), "head": fm.group(2), "subs": []}
+            entries.append(cur)
+            continue
+        s = line.strip()
+        if cur is None or not s:
+            continue
+        sm = _SUB_BULLET.match(s)
+        if sm:
+            cur["subs"].append([sm.group(1).lower().replace(" ", "_"), sm.group(2)])
+        elif cur["subs"]:
+            cur["subs"][-1][1] += " " + s
+        else:
+            cur["head"] += " " + s
+    out = []
+    for e in entries:
+        f = {"id": e["id"], "kind": None, "severity": None, "rule": None, "where": None,
+             "status": None, "root_cause": None, "recommendation": None}
+        for part in e["head"].split("·"):
+            k, sep, v = part.partition(":")
+            k = k.strip().lower()
+            if sep and k in f:
+                f[k] = _clean(v)
+        for k, v in e["subs"]:
+            f[k] = _clean(v)
+        f["status"] = re.split(r"[\s(]", f["status"] or "", 1)[0].lower() or "unknown"
+        out.append(f)
+    return out
+
+
+def findings_verdict(findings):
+    statuses = {f["status"] for f in findings}
+    if "handed-back" in statuses:
+        return "handed-back"
+    if "fixed-in-place" in statuses:
+        return "fixed-in-place"
+    return "clean"          # nothing found, or a re-check confirming earlier fixes
+
+
+def first_line(text):
+    for line in (text or "").splitlines():
+        line = line.strip().strip("#>*_ ").strip()
+        if line:
+            return truncate(line, 240)
+    return ""
+
+
+REJECTING = {"handed-back", "REQUEST CHANGES", "NOT READY", "ISSUES FOUND"}
+
+
+def short_name(subagent):
+    return str(subagent).rsplit(":", 1)[-1]
+
+
+def tokens4(raw):
+    """Claude's usage keys -> the four counts the report shows."""
+    raw = raw or {}
+    return {"input": raw.get("input_tokens", 0), "cache_write": raw.get("cache_creation_input_tokens", 0),
+            "cache_read": raw.get("cache_read_input_tokens", 0), "output": raw.get("output_tokens", 0)}
+
+
+def add_tokens(*ts):
+    out = {"input": 0, "cache_write": 0, "cache_read": 0, "output": 0}
+    for t in ts:
+        for k in out:
+            out[k] += (t or {}).get(k, 0)
+    return out
+
+
+def run_tokens(a):
+    return tokens4((a.get("sub") or {}).get("tokens"))
+
+
+def build_fix_loops(agents):
+    """A loop starts at a gate run that handed findings back. The non-gate runs that
+    follow are its fixes, as long as each is a resumed run or an agent that already
+    ran before the gate; a fresh agent starts the next phase and ends the loop. The
+    next run of the same gate re-checks and ends it; a different gate ends it
+    without a re-check. A rejection that nothing fixed is not a loop."""
+    runs = sorted((a for a in agents if a["start"]), key=lambda a: a["start"])
+    loops = []
+    for i, a in enumerate(runs):
+        if not a["gate"] or a.get("verdict") not in REJECTING:
+            continue
+        seen = {r["subagent"] for r in runs[:i]}
+        fixes, recheck = [], None
+        for b in runs[i + 1:]:
+            if b["gate"]:
+                recheck = b if short_name(b["subagent"]) == short_name(a["subagent"]) else None
+                break
+            if not b.get("resume") and b["subagent"] not in seen:
+                break
+            fixes.append(b)
+        if not fixes:
+            continue
+        members = fixes + ([recheck] if recheck else [])
+        loops.append({
+            "gate": short_name(a["subagent"]), "started_by": a["id"],
+            "findings": [f["id"] for f in (a.get("findings") or []) if f["status"] == "handed-back"],
+            "fix_runs": [b["id"] for b in fixes],
+            "recheck_run": recheck["id"] if recheck else None,
+            "start": a["start"], "end": max((b["end"] or b["start"] for b in members), default=a["end"]),
+            "duration_s": sum(b["duration"] or 0 for b in members),
+            "tool_calls": sum((b.get("sub") or {}).get("tool_calls", 0) for b in members),
+            "tokens": add_tokens(*(run_tokens(b) for b in members)),
+        })
+    return loops
+
+
+def _union(ivs):
+    out = []
+    for s, e in sorted(iv for iv in ivs if iv[0] and iv[1] and iv[1] > iv[0]):
+        if out and s <= out[-1][1]:
+            out[-1][1] = max(out[-1][1], e)
+        else:
+            out.append([s, e])
+    return out
+
+
+def _subtract(ivs, cover):
+    out = []
+    for s, e in ivs:
+        cur = s
+        for cs, ce in cover:
+            if ce <= cur or cs >= e:
+                continue
+            if cs > cur:
+                out.append([cur, cs])
+            cur = max(cur, ce)
+        if cur < e:
+            out.append([cur, e])
+    return out
+
+
+def _secs(ivs):
+    return sum((e - s).total_seconds() for s, e in ivs)
+
+
+def time_breakdown(data):
+    """Wall time split into agents working (parallel runs counted once), waiting on
+    the human (questions, and gaps before the user's next prompt while no agent
+    ran), and the orchestrator (the rest)."""
+    first, last = data["first_ts"], data["last_ts"]
+    wall = (last - first).total_seconds() if first and last else 0.0
+    agent_iv = _union([(a["start"], a["end"]) for a in data["agents"]])
+    asks = [(t["start"], t["end"]) for t in data["tools"] if t["name"] == "AskUserQuestion"]
+    human_iv = _subtract(_union(asks + data.get("waits", [])), agent_iv)
+    agents_s, human_s = _secs(agent_iv), _secs(human_iv)
+    return {"wall_s": round(wall, 1), "agents_s": round(agents_s, 1),
+            "human_wait_s": round(human_s, 1),
+            "orchestrator_s": round(max(0.0, wall - agents_s - human_s), 1),
+            "human_intervals": human_iv}
+
+
+_UC = re.compile(r"use-cases/(UC-\d+(?:\.\d+)*)")
+_CHANGE = re.compile(r"(?:--change[= ]|new change )\s*[\"']?([A-Za-z0-9][\w.-]*)")
+
+
+def find_ids(data):
+    """The use case and OpenSpec change the session worked on, when it names them."""
+    texts = [it.get("text", "") for it in data["timeline"] if it["kind"] == "user"]
+    texts += [json.dumps(t["input"]) for t in data["tools"] if t["name"] in ("Skill", "Agent")]
+    uc = next((m.group(1) for s in texts for m in [_UC.search(s)] if m), None)
+    cmds = [t["input"].get("command", "") for t in data["tools"] if t["name"] == "Bash"]
+    for s in (data.get("subagents") or {}).values():
+        cmds += [t["input"].get("command", "") for t in s["tools"] if t["name"] == "Bash"]
+    changes = Counter(m.group(1) for c in cmds for m in _CHANGE.finditer(c or ""))
+    return uc, (changes.most_common(1)[0][0] if changes else None)
+
+
+def relative_files(files, root):
+    """Re-key file records by path relative to the project root (outside paths keep
+    their full path, with the home folder shortened to ~)."""
+    out = {}
+    prefix = (root or "").rstrip("/") + "/"
+    for path, rec in files.items():
+        if root and path.startswith(prefix):
+            key = path[len(prefix):]
+        else:
+            key = re.sub(r"^/(?:Users|home)/[^/]+/", "~/", path)
+        out = merge_file_ops([out, {key: rec}]) if key in out else {**out, key: rec}
+    return out
+
+
+def analyze_session(path, project_root=None, no_subagents=False):
+    """Everything the report and the summary need, from one session log."""
+    events = load_events(path)
+    if not events:
+        raise ValueError(f"no parseable events in {path}")
+    data = analyze(events)
+    subs = {} if no_subagents else load_subagents(path)
+    if subs:
+        link_subagents(data, subs)
+    else:
+        data.update({"files_all": data["files"], "tool_stats_all": data["tool_stats"],
+                     "subagents": {}, "has_sub": False})
+    root = data["meta"].get("cwd")
+    data["files_all"] = relative_files(data["files_all"], root)
+    data["findings"] = [{**f, "gate": short_name(a["subagent"]), "run": a["id"]}
+                        for a in data["agents"] for f in (a.get("findings") or [])]
+    data["fix_loops"] = build_fix_loops(data["agents"])
+    data["time"] = time_breakdown(data)
+    data["tokens_total"] = add_tokens(tokens4(data["tokens"]),
+                                      *(tokens4(s["tokens"]) for s in data["subagents"].values()))
+    data["use_case"], data["change"] = find_ids(data)
+    data["ctx"] = build_context(data, project_root=project_root)
+    return data
 
 
 # --------------------------------------------------------------------------- #
@@ -822,55 +1281,48 @@ def _median(xs):
 def render(data, source_name, compact):
     meta = data["meta"]
     first, last = data["first_ts"], data["last_ts"]
-    total_dur = (last - first).total_seconds() if first and last else 0
-    agents = data["agents"]
-    errors = data["errors"]
+    agents, errors, loops = data["agents"], data["errors"], data["fix_loops"]
     colours = colour_map({a["subagent"] for a in agents})
+    tm, tok = data["time"], data["tokens_total"]
 
-    tok = data["tokens"]
-    total_cache = (tok.get("cache_read_input_tokens", 0)
-                   + tok.get("cache_creation_input_tokens", 0))
     n_err = sum(1 for e in errors if e["kind"] == "error")
     n_rej = sum(1 for e in errors if e["kind"] == "rejected")
-    issues_caught = sum(1 for a in agents if a.get("caught"))
-
-    title = meta.get("title") or source_name
-
-    has_sub = data.get("has_sub")
-    files = data["files_all"] if has_sub else data["files"]
-    tool_stats = data["tool_stats_all"] if has_sub else data["tool_stats"]
-    scope = " (incl. subagents)" if has_sub else ""
-
+    distinct = distinct_findings(data["findings"])
+    sev = Counter((f["severity"] or "unrated") for f in distinct)
+    sev_txt = " · ".join(f"{n} {s}" for s, n in sorted(sev.items(), key=lambda kv: SEV_ORDER.get(kv[0], 9)))
+    tok_in = tok["input"] + tok["cache_write"] + tok["cache_read"]
+    cached = (100 * tok["cache_read"] / tok_in) if tok_in else 0
     cards = [
-        ("Duration", fmt_dur(total_dur)),
-        ("Agent runs", str(len(agents))),
-        (f"Tool calls{scope}", str(sum(s["count"] for s in tool_stats.values()))),
-        (f"Files touched{scope}", str(len(files))),
-        ("Errors", str(n_err)),
-        ("Rejections", str(n_rej)),
-        ("Issues caught by gates", str(issues_caught)),
-        ("Output tokens", fmt_num(tok.get("output_tokens", 0))),
+        ("Wall time", fmt_dur(tm["wall_s"]),
+         f'agents {fmt_dur(tm["agents_s"])} · you {fmt_dur(tm["human_wait_s"])} · '
+         f'orchestrator {fmt_dur(tm["orchestrator_s"])}'),
+        ("Agent runs", str(len(agents)), f'{sum(1 for a in agents if a.get("resume"))} resumed'),
+        ("Fix loops", str(len(loops)),
+         f'{fmt_dur(sum(lp["duration_s"] for lp in loops))} of rework' if loops else "none"),
+        ("Findings", str(len(distinct)), sev_txt or "none recorded"),
+        ("Output tokens", fmt_num(tok["output"]), "whole session, incl. subagents"),
+        ("Input tokens", fmt_num(tok_in),
+         f'{cached:.0f}% cache reads · {fmt_num(tok["cache_write"])} cache writes'),
+        ("Errors", str(n_err), f"{n_rej} rejected tool calls"),
     ]
     cards_html = "\n".join(
         f'<div class="card"><div class="card-val">{esc(v)}</div>'
-        f'<div class="card-lbl">{esc(l)}</div></div>' for l, v in cards)
+        f'<div class="card-lbl">{esc(l)}</div><div class="card-sub">{esc(sub)}</div></div>'
+        for l, v, sub in cards)
+    notes_html = ("".join(f'<li class="ins info">{esc(n)}</li>' for n in data.get("notes", [])))
+    notes_html = f'<ul class="insights notes">{notes_html}</ul>' if notes_html else ""
 
-    gantt_html, note = render_gantt(agents, first, total_dur, colours, compact)
-    legend = " ".join(f'<span class="legend"><i style="background:{c}"></i>{esc(n)}</span>'
+    timeline_html, timeline_note = render_timeline(data, colours, compact)
+    legend = " ".join(f'<span class="legend"><i style="background:{c}"></i>{esc(short_name(n))}</span>'
                       for n, c in colours.items())
-
-    value_html = render_value_table(agents, colours, has_sub)
-    insights_html = render_insights(agents, errors)
-    gates_html = render_gate_panel(agents, colours)
-    errors_html = render_error_panel(errors)
+    legend += (' <span class="legend"><i class="human-key"></i>you</span>'
+               ' <span class="legend"><i class="loop-key"></i>fix loop</span>')
+    has_sub = data.get("has_sub")
     scope_note = ('<p class="note">Includes tool calls and file access from '
                   'inside every subagent transcript, not just the top-level '
                   'session.</p>' if has_sub else "")
-    tools_html = scope_note + render_tools(tool_stats)
-    files_html = scope_note + render_files(files)
-    context_html = render_context(build_context(data), colours)
-    feed_html = render_feed(data["timeline"], colours)
-
+    ids = " · ".join(filter(None, [data.get("use_case"), data.get("change")]))
+    title = ids or meta.get("title") or source_name
     span = f"{fmt_ts(first)} → {fmt_ts(last)}" if first else "—"
     generated = datetime.now().strftime("%Y-%m-%d %H:%M")
 
@@ -880,116 +1332,248 @@ def render(data, source_name, compact):
         meta_line=esc(" · ".join(filter(None, [
             meta.get("gitBranch", ""), meta.get("cwd", ""),
             ", ".join(f"v{v}" for v in meta.get("versions", []))]))),
-        cards=cards_html, insights=insights_html,
-        gantt_note=note, legend=legend, gantt=gantt_html,
-        value=value_html, gates=gates_html, errors=errors_html,
-        tools=tools_html, files=files_html, context=context_html,
+        cards=cards_html, notes=notes_html,
+        insights=render_insights(agents, errors, loops),
+        timeline_note=esc(timeline_note), legend=legend, timeline=timeline_html,
+        findings=render_findings(data, colours),
+        value=render_value_table(agents, colours, has_sub),
+        runs=render_runs(agents, colours),
+        context=render_context(data["ctx"], colours),
         ctx_title=" &amp; ".join(esc(d) for d in CONTEXT_DIRS),
-        feed=feed_html)
+        errors=render_error_panel(errors),
+        tools=scope_note + render_tools(data["tool_stats_all"]),
+        files=scope_note + render_files(data["files_all"]),
+        feed=render_feed(data["timeline"], colours))
 
 
-def render_gantt(agents, first, total_dur, colours, compact):
-    timed = [a for a in agents if a["start"]]
-    if not timed:
-        return '<p class="empty">No agent runs recorded.</p>', ""
+SEV_ORDER = {"blocking": 0, "high": 1, "medium": 2, "advisory": 3, "low": 4}
+
+
+def status_class(st):
+    return "bad" if st == "handed-back" else "good" if st.startswith("fixed") else "warn"
+
+
+def distinct_findings(findings):
+    """One entry per (gate, id): the fields from its first mention, with the
+    status each later gate run gave it, in order."""
+    out = {}
+    for f in findings:
+        key = (f["gate"], f["id"])
+        if key not in out:
+            out[key] = {**f, "statuses": []}
+        if not out[key]["statuses"] or out[key]["statuses"][-1] != f["status"]:
+            out[key]["statuses"].append(f["status"])
+    return list(out.values())
+
+
+def render_timeline(data, colours, compact):
+    """One lane per agent type (resumed runs share their agent's lane), a lane for
+    the human's waits, and a lane bracketing each fix loop."""
+    agents = [a for a in data["agents"] if a["start"]]
+    human = [tuple(h) for h in data["time"]["human_intervals"]]
+    if not agents and not human:
+        return '<p class="empty">No agent runs or waits recorded.</p>', ""
+    first, last = data["first_ts"], data["last_ts"]
+    ivs = [(a["start"], a["end"] or a["start"]) for a in agents] + human
     note = ""
-    if compact:
-        intervals = [(a["start"], a["end"] or a["start"]) for a in timed]
-        remap, span = build_remap(intervals)
-        def pos(a):
-            s = remap(a["start"])
-            e = remap(a["end"]) if a["end"] else s
-            return 100 * s / span, 100 * (e - s) / span
-        note = "idle gaps collapsed — bar widths still proportional to real duration"
+    if compact and len(ivs) > 0:
+        remap, span = build_remap(ivs)
+        def x(t):
+            return 100 * remap(t) / span
+        note = "idle gaps collapsed; bar widths are still proportional to real time"
     else:
-        span = total_dur or 1
-        def pos(a):
-            off = (a["start"] - first).total_seconds()
-            d = a["duration"] or 0
-            return 100 * off / span, 100 * d / span
+        span = (last - first).total_seconds() or 1
+        def x(t):
+            return 100 * (t - first).total_seconds() / span
 
+    def bar(s, e, cls, colour, label, tip):
+        left = x(s)
+        width = max(0.6, x(e or s) - left)
+        style = f"left:{left:.2f}%;width:{width:.2f}%" + (f";background:{colour}" if colour else "")
+        return (f'<div class="tl-bar {cls}" style="{style}" title="{esc(tip)}">'
+                f'<span>{esc(label)}</span></div>')
+
+    def lane(label, bars, cls=""):
+        return (f'<div class="tl-row {cls}"><div class="tl-label" title="{esc(label)}">{esc(label)}</div>'
+                f'<div class="tl-track">{"".join(bars)}</div></div>')
+
+    lanes = {}
+    for a in sorted(agents, key=lambda a: a["start"]):
+        lanes.setdefault(a["subagent"], []).append(a)
     rows = []
-    for a in timed:
-        left, width = pos(a)
-        width = max(0.7, width)
-        colour = colours[a["subagent"]]
-        status = ("pending" if a["pending"]
-                  else "caught" if a.get("caught")
-                  else "error" if a["error"] else "ok")
-        label = f'{a["subagent"]} · {fmt_dur(a["duration"])}'
-        tip = (f'{a["subagent"]} — {a["description"]}\n'
-               f'start {fmt_ts(a["start"])} · {fmt_dur(a["duration"])}'
-               f'{" · BACKGROUND" if a["background"] else ""}'
-               f'{" · " + a["verdict"] if a.get("verdict") and a["verdict"] != "—" else ""}'
-               f'{" · FAILED/REJECTED" if a["error"] else ""}')
-        rows.append(f'''
-        <div class="gantt-row">
-          <div class="gantt-label" title="{esc(a["description"])}">{esc(truncate(a["description"] or a["subagent"], 44))}</div>
-          <div class="gantt-track">
-            <div class="gantt-bar {status}" style="left:{left:.2f}%;width:{width:.2f}%;background:{colour}"
-                 title="{esc(tip)}"><span>{esc(label)}</span></div>
-          </div>
-        </div>''')
+    for name, runs in lanes.items():
+        bars = []
+        for a in runs:
+            status = ("pending" if a["pending"] else "caught" if a.get("caught")
+                      else "error" if a["error"] else "ok")
+            tk = run_tokens(a)
+            tip = (f'{a["subagent"]} — {a["description"]}\n'
+                   f'start {fmt_ts(a["start"])} · {fmt_dur(a["duration"])}'
+                   f'{" · resumed" if a.get("resume") else ""}'
+                   f'{" · " + a["verdict"] if a.get("verdict") and a["verdict"] != "—" else ""}'
+                   f'\n{(a.get("sub") or {}).get("tool_calls", 0)} tool calls · '
+                   f'{fmt_num(tk["output"])} output tokens')
+            bars.append(bar(a["start"], a["end"], status + (" resumed" if a.get("resume") else ""),
+                            colours[name], a["description"], tip))
+        rows.append(lane(short_name(name), bars))
+    if human:
+        rows.append(lane("you", [bar(s, e, "human", None, "waiting", f"waiting on you · {fmt_dur((e - s).total_seconds())}")
+                                for s, e in human], "human-row"))
+    if data["fix_loops"]:
+        bars = []
+        for lp in data["fix_loops"]:
+            label = f'{lp["gate"]}: {", ".join(lp["findings"]) or "sent back"}'
+            tip = (f'{lp["gate"]} fix loop · {len(lp["fix_runs"])} fix run(s) · '
+                   f'{"re-checked" if lp["recheck_run"] else "not re-checked"}\n'
+                   f'{fmt_dur(lp["duration_s"])} · {lp["tool_calls"]} tool calls · '
+                   f'{fmt_num(lp["tokens"]["output"])} output tokens')
+            bars.append(bar(lp["start"], lp["end"], "loop", None, label, tip))
+        rows.append(lane("fix loops", bars, "loop-row"))
     return "\n".join(rows), note
+
+
+def render_findings(data, colours):
+    gates = [a for a in data["agents"] if a["gate"]]
+    if not gates:
+        return '<p class="empty">No review or gate agents ran.</p>'
+    rrows = []
+    for a in gates:
+        cls = "caught" if a.get("caught") else "clean"
+        src = ('<span class="muted">from findings</span>' if a.get("verdict_source") == "findings"
+               else '<span class="pill warn" title="no Run-log findings block; verdict guessed from '
+                    'keywords">inferred</span>')
+        n = len(a.get("findings") or [])
+        rrows.append(f'''<tr>
+          <td class="muted num">{esc(fmt_ts(a["start"]))}</td>
+          <td><span class="agent-badge" style="background:{colours[a["subagent"]]}">{esc(short_name(a["subagent"]))}</span></td>
+          <td>{esc(truncate(a["description"], 60))}{' <span class="muted">(resumed)</span>' if a.get("resume") else ''}</td>
+          <td><span class="verdict {cls}">{esc(a.get("verdict") or "—")}</span></td>
+          <td class="nw">{src}</td><td class="num">{n or "—"}</td>
+          <td class="snip">{esc(truncate(a.get("snippet") or "", 160))}</td></tr>''')
+    runs_table = f'''<table class="vtable">
+      <thead><tr><th class="num">Start</th><th>Gate</th><th>Run</th><th>Verdict</th><th>Source</th>
+      <th class="num">Findings</th><th>Summary</th></tr></thead><tbody>{"".join(rrows)}</tbody></table>'''
+
+    fs = sorted(distinct_findings(data["findings"]),
+                key=lambda f: (SEV_ORDER.get(f["severity"] or "", 9), f["gate"], f["id"]))
+    if fs:
+        frows = []
+        for f in fs:
+            trail = " ".join(f'<span class="pill {status_class(st)}">{esc(st)}</span>'
+                             for st in f["statuses"])
+            sv = f["severity"] or "—"
+            svcls = "bad" if sv in ("blocking", "high") else "warn" if sv == "medium" else ""
+            frows.append(f'''<tr>
+              <td><b>{esc(f["id"])}</b></td><td>{esc(f["gate"])}</td>
+              <td><span class="pill {svcls}">{esc(sv)}</span></td>
+              <td>{esc(f["kind"] or "—")}</td>
+              <td class="rule" title="{esc(f["rule"] or "")}">{esc(truncate(f["rule"] or "—", 30))}</td>
+              <td class="trail">{trail}</td>
+              <td class="snip" title="{esc((f["where"] or "") + chr(10) + (f.get("recommendation") or ""))}">{esc(truncate(f.get("root_cause") or "", 160))}</td></tr>''')
+        ftable = f'''<p class="note">One row per finding; Status shows each gate run's verdict on it, in
+          order. Hover the root cause for where it was and what would prevent it.</p>
+          <table class="vtable">
+          <thead><tr><th>Id</th><th>Gate</th><th>Severity</th><th>Kind</th><th>Rule</th>
+          <th>Status</th><th>Root cause</th></tr></thead>
+          <tbody>{"".join(frows)}</tbody></table>'''
+    else:
+        ftable = '<p class="empty">No gate wrote a Run-log findings block with entries.</p>'
+
+    by_id = {a["id"]: a for a in data["agents"]}
+    lrows = []
+    for lp in data["fix_loops"]:
+        fixes = ", ".join(truncate(by_id[r]["description"], 40) for r in lp["fix_runs"]) or "no fix run"
+        recheck = (truncate(by_id[lp["recheck_run"]]["description"], 40) if lp["recheck_run"]
+                   else '<span class="pill warn">not re-checked</span>')
+        lrows.append(f'''<tr><td>{esc(lp["gate"])}</td><td>{esc(", ".join(lp["findings"]) or "—")}</td>
+          <td>{esc(fixes)}</td><td>{recheck if not lp["recheck_run"] else esc(recheck)}</td>
+          <td class="num">{esc(fmt_dur(lp["duration_s"]))}</td><td class="num">{lp["tool_calls"]}</td>
+          <td class="num">{fmt_num(lp["tokens"]["output"])}</td></tr>''')
+    ltable = (f'''<h3>Fix loops</h3><table class="vtable">
+      <thead><tr><th>Gate</th><th>Sent back</th><th>Fixed by</th><th>Re-checked by</th>
+      <th class="num">Time</th><th class="num">Tool calls</th><th class="num">Out tokens</th></tr></thead>
+      <tbody>{"".join(lrows)}</tbody></table>''' if lrows else "")
+    return (f'<h3>Gate runs</h3>{runs_table}<h3>Findings</h3>{ftable}{ltable}')
 
 
 def render_value_table(agents, colours, has_sub=False):
     if not agents:
         return '<p class="empty">No agents.</p>'
-    stats = defaultdict(lambda: {"runs": 0, "total": 0.0, "gate": False,
-                                 "caught": 0, "err": 0, "calls": 0,
-                                 "files": 0, "out_tok": 0, "models": set(),
+    stats = defaultdict(lambda: {"runs": 0, "total": 0.0, "gate": False, "caught": 0, "err": 0,
+                                 "calls": 0, "files": 0, "tokens": [], "models": set(),
                                  "efforts": set()})
     for a in agents:
         s = stats[a["subagent"]]
         s["runs"] += 1
         s["total"] += a["duration"] or 0
         s["gate"] = a["gate"]
-        if a.get("caught"):
-            s["caught"] += 1
-        if a["error"]:
-            s["err"] += 1
+        s["caught"] += int(bool(a.get("caught")))
+        s["err"] += int(bool(a["error"]))
         if a.get("model"):
             s["models"].add(a["model"])
         s["efforts"].update(split_effort(a.get("effort")))
-        sub = a.get("sub")
-        if sub:
-            s["calls"] += sub["tool_calls"]
-            s["files"] += len(sub["file_ops"])
-            s["out_tok"] += sub["tokens"].get("output_tokens", 0)
+        sub = a.get("sub") or {}
+        s["calls"] += sub.get("tool_calls", 0)
+        s["files"] += len(sub.get("file_ops", {}))
+        s["tokens"].append(run_tokens(a))
     rows = []
     for name, s in sorted(stats.items(), key=lambda kv: -kv[1]["total"]):
         avg = s["total"] / s["runs"] if s["runs"] else 0
         if s["gate"]:
-            val = (f'<span class="pill good">caught {s["caught"]}/{s["runs"]}</span>'
-                   if s["caught"] else
-                   f'<span class="pill warn">0/{s["runs"]} — approved all</span>')
+            val = (f'<span class="pill good">caught {s["caught"]}/{s["runs"]}</span>' if s["caught"]
+                   else f'<span class="pill warn">0/{s["runs"]}: approved all</span>')
         else:
             val = '<span class="muted">producer</span>'
         errc = f'<span class="pill bad">{s["err"]}</span>' if s["err"] else "0"
-        dot = f'<i class="dot" style="background:{colours[name]}"></i>'
-        model = ", ".join(short_model(m) for m in sorted(s["models"])) or "—"
-        effort = join_known(s["efforts"])
-        work =(f'<td class="num">{s["calls"]}</td>'
-                f'<td class="num">{s["files"]}</td>'
-                f'<td class="num muted">{fmt_num(s["out_tok"])}</td>') if has_sub else ""
+        tk = add_tokens(*s["tokens"])
+        work = (f'<td class="num">{s["calls"]}</td><td class="num">{s["files"]}</td>'
+                f'<td class="num muted">{fmt_num(tk["input"])}</td>'
+                f'<td class="num muted">{fmt_num(tk["cache_write"])}</td>'
+                f'<td class="num muted">{fmt_num(tk["cache_read"])}</td>'
+                f'<td class="num">{fmt_num(tk["output"])}</td>') if has_sub else ""
         rows.append(f'''<tr>
-          <td>{dot}{esc(name)}{' <span class="gate-tag">gate</span>' if s["gate"] else ''}</td>
-          <td>{esc(model)}</td>
-          <td{' class="muted"' if effort == "unknown" else ''}>{esc(effort)}</td>
+          <td><i class="dot" style="background:{colours[name]}"></i>{esc(short_name(name))}{' <span class="gate-tag">gate</span>' if s["gate"] else ''}</td>
+          <td class="nw">{esc(", ".join(short_model(m) for m in sorted(s["models"])) or "—")}</td>
+          <td{' class="muted"' if join_known(s["efforts"]) == "unknown" else ''}>{esc(join_known(s["efforts"]))}</td>
           <td class="num">{s["runs"]}</td><td class="num">{fmt_dur(s["total"])}</td>
           <td class="num">{fmt_dur(avg)}</td>{work}
           <td>{val}</td><td class="num">{errc}</td></tr>''')
-    work_head = ('<th class="num">Tool calls</th><th class="num">Files</th>'
-                 '<th class="num">Out tokens</th>') if has_sub else ""
-    hint = ('<p class="note">Tool calls / Files / Out tokens are the work done '
-            '<em>inside</em> each subagent (summed across its runs).</p>'
+    work_head = ('<th class="num">Tool calls</th><th class="num">Files</th><th class="num">Input</th>'
+                 '<th class="num">Cache write</th><th class="num">Cache read</th>'
+                 '<th class="num">Output</th>') if has_sub else ""
+    hint = ('<p class="note">Tool calls, files and tokens are the work done inside each agent, '
+            'summed across its runs; a resumed run is credited with its own work.</p>'
             if has_sub else "")
     return f'''{hint}<table class="vtable">
-      <thead><tr><th>Subagent</th><th>Model</th><th>Effort</th><th class="num">Runs</th>
-      <th class="num">Total time</th><th class="num">Avg</th>{work_head}
+      <thead><tr><th>Agent</th><th>Model</th><th>Effort</th><th class="num">Runs</th>
+      <th class="num">Time</th><th class="num">Avg</th>{work_head}
       <th>Gate value</th><th class="num">Errors</th></tr></thead>
       <tbody>{''.join(rows)}</tbody></table>'''
+
+
+def render_runs(agents, colours):
+    """Every run, in order, with its own cost."""
+    if not agents:
+        return '<p class="empty">No agent runs.</p>'
+    rows = []
+    for a in agents:
+        sub = a.get("sub") or {}
+        tk = run_tokens(a)
+        link = {"id": "", "resume": "resumed", "prompt": "linked by prompt"}.get(a.get("linked_by"),
+                                                                             "no transcript")
+        rows.append(f'''<tr>
+          <td class="muted num">{esc(fmt_ts(a["start"]))}</td>
+          <td><span class="agent-badge" style="background:{colours[a["subagent"]]}">{esc(short_name(a["subagent"]))}</span></td>
+          <td>{esc(truncate(a["description"], 56))} <span class="muted">{esc(link)}</span></td>
+          <td class="num">{esc(fmt_dur(a["duration"]))}</td><td class="num">{sub.get("tool_calls", 0)}</td>
+          <td class="num muted">{fmt_num(tk["input"])}</td><td class="num muted">{fmt_num(tk["cache_write"])}</td>
+          <td class="num muted">{fmt_num(tk["cache_read"])}</td><td class="num">{fmt_num(tk["output"])}</td>
+          <td>{esc(a.get("verdict") or "")}</td></tr>''')
+    return f'''<table class="vtable compact">
+      <thead><tr><th class="num">Start</th><th>Agent</th><th>Run</th><th class="num">Time</th>
+      <th class="num">Tool calls</th><th class="num">Input</th><th class="num">Cache write</th>
+      <th class="num">Cache read</th><th class="num">Output</th><th>Verdict</th></tr></thead>
+      <tbody>{"".join(rows)}</tbody></table>'''
 
 
 def split_effort(e):
@@ -1010,67 +1594,47 @@ def short_model(m):
     return re.sub(r"^claude-", "", m or "").replace("-latest", "")
 
 
-def render_insights(agents, errors):
+def render_insights(agents, errors, loops=()):
     out = []
-    gates = [a for a in agents if a["gate"]]
     by = defaultdict(list)
-    for a in gates:
-        by[a["subagent"]].append(a)
+    for a in agents:
+        if a["gate"]:
+            by[short_name(a["subagent"])].append(a)
+    loops_by = defaultdict(list)
+    for lp in loops:
+        loops_by[lp["gate"]].append(lp)
     for name, runs in sorted(by.items()):
         caught = [r for r in runs if r.get("caught")]
         if caught:
-            total_issues = sum(r["issues"] or 0 for r in caught)
-            extra = f" ({total_issues} issues)" if total_issues else ""
-            out.append(("good",
-                f'{name} proved its worth — caught something in '
-                f'{len(caught)}/{len(runs)} runs{extra}.'))
+            total = sum(r["issues"] or 0 for r in caught)
+            out.append(("good", f'{name} caught something in {len(caught)}/{len(runs)} runs'
+                                f'{f" ({total} findings)" if total else ""}.'))
         else:
-            out.append(("warn",
-                f'{name} approved all {len(runs)} runs with no findings — '
-                f'either the upstream work was clean, or this gate is low-signal.'))
-    if errors:
-        ne = sum(1 for e in errors if e["kind"] == "error")
-        nr = sum(1 for e in errors if e["kind"] == "rejected")
-        if ne:
-            top = Counter(e["tool"] for e in errors if e["kind"] == "error").most_common(1)[0]
-            out.append(("bad", f'{ne} command/tool errors — most in {top[0]} '
-                               f'({top[1]}). Worth investigating.'))
-        if nr:
-            out.append(("warn", f'{nr} tool calls you rejected — friction points '
-                               f'where the agent guessed wrong.'))
+            out.append(("warn", f'{name} approved all {len(runs)} runs with no findings: either '
+                                f'the work it checked was clean, or this gate is low-signal.'))
+        lps = loops_by.get(name)
+        if lps:
+            out.append(("info", f'{name} sent work back {len(lps)} time(s); the fixes and re-checks '
+                                f'took {fmt_dur(sum(lp["duration_s"] for lp in lps))}, '
+                                f'{sum(lp["tool_calls"] for lp in lps)} tool calls and '
+                                f'{fmt_num(sum(lp["tokens"]["output"] for lp in lps))} output tokens.'))
+    ne = sum(1 for e in errors if e["kind"] == "error")
+    nr = sum(1 for e in errors if e["kind"] == "rejected")
+    if ne:
+        top = Counter(e["tool"] for e in errors if e["kind"] == "error").most_common(1)[0]
+        out.append(("bad", f'{ne} command or tool errors, most in {top[0]} ({top[1]}).'))
+    if nr:
+        out.append(("warn", f'{nr} tool calls you rejected: friction points where the agent '
+                            f'guessed wrong.'))
     slow = sorted((a for a in agents if a["duration"]), key=lambda a: -a["duration"])[:1]
     if slow:
         a = slow[0]
-        out.append(("info", f'Slowest agent: {a["subagent"]} '
-                           f'"{truncate(a["description"], 40)}" at {fmt_dur(a["duration"])}.'))
+        out.append(("info", f'Slowest run: {short_name(a["subagent"])} '
+                            f'"{truncate(a["description"], 40)}" at {fmt_dur(a["duration"])}.'))
     if not out:
         return ""
     items = "\n".join(f'<li class="ins {c}">{esc(t)}</li>' for c, t in out)
     return f'<ul class="insights">{items}</ul>'
-
-
-def render_gate_panel(agents, colours):
-    gates = [a for a in agents if a["gate"]]
-    if not gates:
-        return '<p class="empty">No review/gate agents ran.</p>'
-    rows = []
-    for a in gates:
-        caught = a.get("caught")
-        cls = "caught" if caught else "clean"
-        badge = a.get("verdict") or "—"
-        colour = colours[a["subagent"]]
-        snip = f'<div class="gate-snip">{esc(truncate(a["snippet"], 260))}</div>' if a.get("snippet") else ""
-        rows.append(f'''
-        <div class="gate-item {cls}">
-          <div class="gate-head">
-            <span class="agent-badge" style="background:{colour}">{esc(a["subagent"])}</span>
-            <span class="verdict {cls}">{esc(badge)}</span>
-            <span class="muted">{esc(fmt_ts(a["start"]))} · {esc(fmt_dur(a["duration"]))}</span>
-          </div>
-          <div class="gate-desc">{esc(truncate(a["description"], 90))}</div>
-          {snip}
-        </div>''')
-    return "\n".join(rows)
 
 
 def render_error_panel(errors):
@@ -1127,17 +1691,18 @@ def render_files(files):
             badges.append(f'<span class="fop edit">edit ×{f["edit"]}</span>')
         if f["read"]:
             badges.append(f'<span class="fop read">read ×{f["read"]}</span>')
-        short = path.replace("/Users/", "~/").rsplit("/", 4)
-        disp = "/".join(short[-4:]) if len(short) > 4 else path
         rows.append(f'''<tr>
-          <td class="fpath" title="{esc(path)}">{esc(disp)}</td>
+          <td class="fpath">{esc(path)}</td>
           <td>{' '.join(badges)}</td>
           <td class="num muted">{total}</td></tr>''')
     more = (f'<p class="note">…and {len(ordered) - 60} more files.</p>'
             if len(ordered) > 60 else "")
     created = sum(1 for _, f in files.items() if f["write"] and not f["read"] and not f["edit"])
-    summary = (f'<p class="note">{len(files)} files touched · '
-               f'{created} written fresh (no prior read).</p>')
+    shell = sum(f.get("shell", 0) for f in files.values())
+    summary = (f'<p class="note">{len(files)} files touched · {created} written fresh (no prior '
+               f'read) · counts incl. shell: {shell} operations came from shell commands such as '
+               f'cat, sed, grep and redirects (common forms only). Claude Code\'s own files '
+               f'are left out.</p>')
     return f'''{summary}<table class="vtable">
       <thead><tr><th>File</th><th>Operations</th><th class="num">Total</th></tr></thead>
       <tbody>{''.join(rows)}</tbody></table>{more}'''
@@ -1190,7 +1755,7 @@ def render_context(ctx, colours):
           <td>{verdict}</td></tr>''')
     file_table = f'''<table class="vtable">
       <thead><tr><th>Doc</th><th class="num" title="approx tokens (chars/4)">Size</th>
-      <th class="num">Reads</th>
+      <th class="num" title="Read tool and shell commands (cat, head, sed, grep…)">Reads incl. shell</th>
       <th class="num" title="share of reads before the agent's first write">Informed</th>
       <th class="num">Cited</th><th class="num">Influence</th>
       <th class="num" title="influence per 1K tokens of the doc — value per word">Value/1K</th>
@@ -1229,7 +1794,8 @@ def render_context(ctx, colours):
 
     note = ('<p class="note"><b>Reading is not proof of benefit.</b> This shows the '
             'docs reach the agents and are used (Influence = reads + citations; '
-            'Informed = read before the agent started writing). To prove they '
+            'Informed = read before the agent started writing). Reads include common '
+            'shell commands (cat, head, sed, grep), so they are a close estimate, not exact. To prove they '
             '<em>help vs hinder</em>, compare two runs with <code>--compare</code> '
             '(full vs stripped context). Note CLAUDE.md is always in-context and '
             'is not counted here.</p>')
@@ -1320,6 +1886,18 @@ h2 {{ font-size:14px; text-transform:uppercase; letter-spacing:.06em;
 .card {{ background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:15px; }}
 .card-val {{ font-size:21px; font-weight:650; }}
 .card-lbl {{ color:var(--muted); font-size:12px; margin-top:2px; }}
+.card-sub {{ color:var(--muted); font-size:11px; margin-top:6px; opacity:.85; }}
+h3 {{ font-size:13px; margin:18px 0 8px; }} h3:first-child {{ margin-top:0; }}
+details.diag > summary {{ cursor:pointer; list-style:none; }}
+details.diag > summary::-webkit-details-marker {{ display:none; }}
+details.diag > summary h2 {{ display:inline-block; }}
+details.diag > summary h2::before {{ content:"\\25B8  "; }}
+details.diag[open] > summary h2::before {{ content:"\\25BE  "; }}
+details.inner {{ margin-top:14px; }}
+details.inner > summary {{ cursor:pointer; color:var(--muted); font-size:12px; margin-bottom:8px; }}
+.notes .ins {{ font-size:12px; }}
+.snip {{ color:var(--muted); font-size:12px; }}
+.vtable.compact td {{ padding:6px 8px; }}
 .panel {{ background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:18px; }}
 .insights {{ list-style:none; padding:0; margin:18px 0 0; display:grid; gap:8px; }}
 .ins {{ padding:10px 14px; border-radius:10px; border-left:3px solid var(--muted);
@@ -1330,20 +1908,29 @@ h2 {{ font-size:14px; text-transform:uppercase; letter-spacing:.06em;
   font-size:12px; color:var(--muted); }}
 .legend i {{ width:11px; height:11px; border-radius:3px; display:inline-block; }}
 .note {{ color:var(--muted); font-size:12px; margin:-4px 0 10px; font-style:italic; }}
-.gantt-row {{ display:flex; align-items:center; gap:12px; margin:6px 0; }}
-.gantt-label {{ width:220px; flex:none; font-size:12px; color:var(--muted);
+.tl-row {{ display:flex; align-items:center; gap:12px; margin:6px 0; }}
+.tl-label {{ width:120px; flex:none; font-size:12px; color:var(--muted);
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap; text-align:right; }}
-.gantt-track {{ position:relative; flex:1; height:24px; background:var(--panel2);
-  border-radius:6px; overflow:hidden; }}
-.gantt-bar {{ position:absolute; top:0; height:100%; border-radius:6px; min-width:3px;
-  display:flex; align-items:center; opacity:.92; }}
-.gantt-bar:hover {{ opacity:1; }}
-.gantt-bar span {{ font-size:11px; color:#fff; padding:0 7px; white-space:nowrap;
-  overflow:hidden; text-shadow:0 1px 1px rgba(0,0,0,.4); }}
-.gantt-bar.caught {{ outline:2px solid var(--good); outline-offset:-2px; }}
-.gantt-bar.error {{ outline:2px solid var(--bad); outline-offset:-2px; }}
-.gantt-bar.pending {{ background-image:repeating-linear-gradient(45deg,
+.tl-track {{ position:relative; flex:1; height:26px; background:var(--panel2); border-radius:6px; }}
+.tl-bar {{ position:absolute; top:0; height:100%; border-radius:5px; min-width:3px;
+  display:flex; align-items:center; overflow:hidden; opacity:.92;
+  box-shadow:0 0 0 1px var(--panel) inset; }}
+.tl-bar:hover {{ opacity:1; z-index:2; }}
+.tl-bar span {{ font-size:11px; color:#fff; padding:0 6px; white-space:nowrap; overflow:hidden;
+  text-overflow:ellipsis; text-shadow:0 1px 1px rgba(0,0,0,.4); }}
+.tl-bar.caught {{ outline:2px solid var(--good); outline-offset:-2px; }}
+.tl-bar.error {{ outline:2px solid var(--bad); outline-offset:-2px; }}
+.tl-bar.resumed {{ background-image:linear-gradient(90deg, rgba(0,0,0,.25) 0 3px, transparent 3px); }}
+.tl-bar.pending {{ background-image:repeating-linear-gradient(45deg,
   rgba(255,255,255,.15) 0 6px, transparent 6px 12px)!important; }}
+.tl-bar.human {{ background:repeating-linear-gradient(45deg, var(--muted) 0 4px, transparent 4px 8px);
+  opacity:.55; }}
+.tl-bar.human span {{ display:none; }}
+.tl-bar.loop {{ background:rgba(245,158,11,.22); border:1px solid var(--warn); }}
+.tl-bar.loop span {{ color:var(--warn); text-shadow:none; font-weight:600; }}
+.human-row .tl-track, .loop-row .tl-track {{ height:20px; }}
+.legend i.human-key {{ background:repeating-linear-gradient(45deg, var(--muted) 0 3px, transparent 3px 6px); }}
+.legend i.loop-key {{ background:rgba(245,158,11,.3); border:1px solid var(--warn); }}
 .vtable {{ width:100%; border-collapse:collapse; font-size:13px; }}
 .vtable th {{ text-align:left; color:var(--muted); font-weight:600; font-size:12px;
   padding:8px 10px; border-bottom:1px solid var(--line); }}
@@ -1351,7 +1938,7 @@ h2 {{ font-size:14px; text-transform:uppercase; letter-spacing:.06em;
 .dot {{ width:10px; height:10px; border-radius:3px; display:inline-block; margin-right:7px; }}
 .gate-tag {{ font-size:10px; background:var(--accent); color:#fff; padding:1px 6px;
   border-radius:5px; margin-left:6px; }}
-.pill {{ font-size:11px; padding:2px 9px; border-radius:20px; font-weight:600; }}
+.pill {{ font-size:11px; padding:2px 9px; border-radius:20px; font-weight:600; white-space:nowrap; }}
 .pill.good {{ background:rgba(16,185,129,.16); color:var(--good); }}
 .pill.warn {{ background:rgba(245,158,11,.16); color:var(--warn); }}
 .pill.bad {{ background:rgba(239,68,68,.16); color:var(--bad); }}
@@ -1364,7 +1951,9 @@ h2 {{ font-size:14px; text-transform:uppercase; letter-spacing:.06em;
 .gate-desc {{ margin-top:5px; font-size:13px; }}
 .gate-snip {{ margin-top:7px; padding:8px 10px; background:var(--panel2);
   border-radius:8px; font-size:12px; color:var(--muted); }}
-.verdict {{ font-size:11px; font-weight:700; padding:2px 9px; border-radius:6px; }}
+.verdict {{ font-size:11px; font-weight:700; padding:2px 9px; border-radius:6px; white-space:nowrap; }}
+.vtable td.rule {{ font-family:ui-monospace,Menlo,monospace; font-size:11px; white-space:nowrap; }}
+.vtable td.trail {{ white-space:normal; }} .trail .pill {{ display:inline-block; margin:1px 0; }}
 .verdict.caught {{ background:rgba(16,185,129,.18); color:var(--good); }}
 .verdict.clean {{ background:var(--panel2); color:var(--muted); }}
 .err-item {{ display:flex; gap:12px; padding:11px 0; border-top:1px solid var(--line); }}
@@ -1374,7 +1963,8 @@ h2 {{ font-size:14px; text-transform:uppercase; letter-spacing:.06em;
 .err-item.rejected .err-msg {{ color:var(--warn); }}
 .tool-bar-wrap {{ background:var(--panel2); border-radius:5px; height:14px; min-width:60px; }}
 .tool-bar {{ height:100%; background:var(--accent); border-radius:5px; }}
-.vtable td.num {{ text-align:right; font-variant-numeric:tabular-nums; }}
+.vtable td.num {{ text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; }}
+.vtable td.nw {{ white-space:nowrap; }}
 .vtable th.num {{ text-align:right; }}
 .fpath {{ font-family:ui-monospace,Menlo,monospace; font-size:12px; word-break:break-all; }}
 .fop {{ display:inline-block; font-size:10px; font-weight:600; padding:1px 7px;
@@ -1412,33 +2002,34 @@ h2 {{ font-size:14px; text-transform:uppercase; letter-spacing:.06em;
   <div class="sub">{subtitle}</div>
   <div class="meta">{meta_line}</div>
   <div class="cards">{cards}</div>
+  {notes}
+  {insights}
 
-  <h2>Insights</h2>{insights}
-
-  <h2>Agent timeline</h2>
-  <div class="note">{gantt_note}</div>
+  <h2>Timeline</h2>
+  <div class="note">{timeline_note}</div>
   <div style="margin-bottom:10px">{legend}</div>
-  <div class="panel">{gantt}</div>
+  <div class="panel">{timeline}</div>
 
-  <h2>Subagent value &amp; efficiency</h2>
-  <div class="panel">{value}</div>
+  <h2>Findings</h2>
+  <div class="panel">{findings}</div>
 
-  <h2>Review-gate value — what the reviewers caught</h2>
-  <div class="panel">{gates}</div>
+  <h2>Agents</h2>
+  <div class="panel">{value}
+    <details class="inner"><summary>Every run</summary>{runs}</details></div>
 
-  <h2>Errors &amp; friction</h2>
-  <div class="panel">{errors}</div>
-
-  <h2>Tool usage</h2>
-  <div class="panel">{tools}</div>
-
-  <h2>Files touched</h2>
-  <div class="panel">{files}</div>
-
-  <h2>Context ingestion — {ctx_title}</h2>
+  <h2>Context — {ctx_title}</h2>
   <div class="panel">{context}</div>
 
-  <h2>Activity feed</h2>
+  <details class="diag"><summary><h2>Errors &amp; friction</h2></summary>
+  <div class="panel">{errors}</div></details>
+
+  <details class="diag"><summary><h2>Tool usage</h2></summary>
+  <div class="panel">{tools}</div></details>
+
+  <details class="diag"><summary><h2>Files touched</h2></summary>
+  <div class="panel">{files}</div></details>
+
+  <details class="diag"><summary><h2>Activity feed</h2></summary>
   <div class="filters">
     <button data-f="all" class="active">All</button>
     <button data-f="user">Prompts</button>
@@ -1447,7 +2038,7 @@ h2 {{ font-size:14px; text-transform:uppercase; letter-spacing:.06em;
     <button data-f="tool">Tools</button>
     <button data-f="thinking">Thinking</button>
   </div>
-  <div id="feed">{feed}</div>
+  <div id="feed">{feed}</div></details>
 </div>
 <script>
 const btns=[...document.querySelectorAll('.filters button')];
@@ -1472,20 +2063,13 @@ btns.forEach(b=>b.onclick=()=>{{
 def session_metrics(path):
     """Load a session and reduce it to the scalar outcome metrics used to
     compare two runs in an ablation."""
-    events = load_events(path)
-    data = analyze(events)
-    subs = load_subagents(path)
-    if subs:
-        link_subagents(data, subs)
-    ctx = build_context(data, project_root=Path.cwd())
-
+    data = analyze_session(path)
+    ctx = data["ctx"]
     agents = data["agents"]
     first, last = data["first_ts"], data["last_ts"]
-    has_sub = data.get("has_sub")
-    tool_stats = data["tool_stats_all"] if has_sub else data["tool_stats"]
-    files = data["files_all"] if has_sub else data["files"]
-    out_tok = data["tokens"].get("output_tokens", 0) + sum(
-        s["tokens"].get("output_tokens", 0) for s in subs.values())
+    tool_stats = data["tool_stats_all"]
+    files = data["files_all"]
+    out_tok = data["tokens_total"]["output"]
     per_file = ctx["per_file"]
 
     return {
@@ -1596,32 +2180,85 @@ td.num, th.num {{ text-align:right; font-variant-numeric:tabular-nums; }}
 
 
 # --------------------------------------------------------------------------- #
+SUMMARY_SCHEMA = 1
+
+
+def _rel(path):
+    try:
+        return str(path.resolve().relative_to(Path.cwd().resolve()))
+    except ValueError:
+        return str(path)
+
+
+def _iso(dt):
+    return dt.astimezone(timezone.utc).isoformat().replace("+00:00", "Z") if dt else None
+
+
 def run_summary(data, out):
-    """The run facts a retrospective records: what actually ran, with full model
-    IDs. A value that differs across runs is a comma-separated list; anything
-    the transcript didn't record is "unknown"."""
-    per = defaultdict(lambda: {"models": set(), "efforts": set(), "runs": 0})
+    """The run facts a retrospective records and a trends report reads: what ran,
+    with full model IDs, what each run cost, what the gates found and the fix loops
+    they caused. A value that differs across runs is a comma-separated list;
+    anything the transcript didn't record is "unknown"."""
+    per = defaultdict(lambda: {"models": set(), "efforts": set(), "runs": 0, "duration": 0.0,
+                               "calls": 0, "tokens": []})
+    runs = []
     for a in data["agents"]:
-        p = per[str(a["subagent"]).rsplit(":", 1)[-1]]
+        name = short_name(a["subagent"])
+        sub = a.get("sub") or {}
+        p = per[name]
         p["runs"] += 1
         p["models"].add(a.get("model") or "unknown")
         p["efforts"].update(split_effort(a.get("effort")))
-    agents = {name: {"model": join_known(p["models"]),
-                     "effort": join_known(p["efforts"]), "runs": p["runs"]}
+        p["duration"] += a["duration"] or 0
+        p["calls"] += sub.get("tool_calls", 0)
+        p["tokens"].append(run_tokens(a))
+        runs.append({
+            "id": a["id"], "agent": name, "description": a["description"],
+            "start": _iso(a["start"]), "duration_s": round(a["duration"] or 0, 1),
+            "resumed": bool(a.get("resume")), "linked_by": a.get("linked_by"),
+            "tool_calls": sub.get("tool_calls", 0), "tokens": run_tokens(a),
+            "verdict": a.get("verdict"), "verdict_source": a.get("verdict_source"),
+            "findings": [f["id"] for f in (a.get("findings") or [])],
+        })
+    agents = {name: {"model": join_known(p["models"]), "effort": join_known(p["efforts"]),
+                     "runs": p["runs"], "duration_s": round(p["duration"], 1),
+                     "tool_calls": p["calls"], "tokens": add_tokens(*p["tokens"])}
               for name, p in sorted(per.items())}
     versions = data["meta"].get("versions") or []
-    try:
-        report = str(out.resolve().relative_to(Path.cwd().resolve()))
-    except ValueError:
-        report = str(out)
     return {
+        "schema": SUMMARY_SCHEMA,
         "session": data["meta"].get("sessionId") or "unknown",
-        "report": report,
+        "report": _rel(out),
+        "summary": _rel(summary_path(out)),
         "claude_code": (versions[0] if len(versions) == 1 else versions) or "unknown",
+        "use_case": data.get("use_case"), "change": data.get("change"),
         "orchestrator": {"model": data.get("main_model") or "unknown",
-                         "effort": data.get("main_effort") or "unknown"},
+                         "effort": data.get("main_effort") or "unknown",
+                         "tokens": tokens4(data["tokens"])},
         "agents": agents,
+        "time": {k: v for k, v in data["time"].items() if k != "human_intervals"},
+        "tokens": data["tokens_total"],
+        "runs": runs,
+        "findings": data["findings"],
+        "fix_loops": [{k: v for k, v in lp.items() if k not in ("start", "end")}
+                      for lp in data["fix_loops"]],
+        "notes": data.get("notes", []),
     }
+
+
+def summary_path(out):
+    name = out.name[:-len(".report.html")] if out.name.endswith(".report.html") else out.stem
+    return out.with_name(name + ".summary.json")
+
+
+def write_outputs(data, source_name, out, compact):
+    """Write the HTML report and the summary file beside it; return the summary."""
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(render(data, source_name, compact), encoding="utf-8")
+    summary = run_summary(data, out)
+    summary_path(out).write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n",
+                                 encoding="utf-8")
+    return summary
 
 
 def main():
@@ -1651,10 +2288,8 @@ def main():
     ap.add_argument("--open", action="store_true",
                     help="open the report in a browser when done")
     ap.add_argument("--summary", action="store_true",
-                    help="after writing the report, print one JSON object (session, "
-                    "report path, Claude Code version, and the model, effort and "
-                    "runs of the orchestrator and each agent) instead of the "
-                    "status lines")
+                    help="print the run summary (the same JSON object written to "
+                    "<session>.summary.json) instead of the status lines")
     args = ap.parse_args()
 
     CONTEXT_DIRS = tuple(d.strip().strip("/") for d in args.context_dirs.split(",")
@@ -1683,36 +2318,31 @@ def main():
             webbrowser.open(out.resolve().as_uri())
         return
 
-    events = load_events(src)
-    if not events:
-        ap.error("no parseable events found")
-
-    data = analyze(events)
-    subs = {} if args.no_subagents else load_subagents(src)
-    if subs:
-        link_subagents(data, subs)
-    if args.output:
-        out = Path(args.output)
-    else:
-        # default: keep reports with the project, under --out-dir
-        out = out_dir / (src.stem + ".report.html")
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(render(data, src.name, args.compact), encoding="utf-8")
+    try:
+        data = analyze_session(src, no_subagents=args.no_subagents)
+    except ValueError as e:
+        ap.error(str(e))
+    # default: keep reports with the project, under --out-dir
+    out = Path(args.output) if args.output else out_dir / (src.stem + ".report.html")
+    summary = write_outputs(data, src.name, out, args.compact)
 
     if args.summary:
-        print(json.dumps(run_summary(data, out), ensure_ascii=False))
+        print(json.dumps(summary, ensure_ascii=False, indent=2))
         if args.open:
             webbrowser.open(out.resolve().as_uri())
         return
 
-    n_caught = sum(1 for a in data["agents"] if a.get("caught"))
+    subs = data["subagents"]
     n_err = sum(1 for e in data["errors"] if e["kind"] == "error")
     sub_note = (f" · {len(subs)} subagent transcripts "
                 f"({sum(s['tool_calls'] for s in subs.values())} inner tool calls)"
                 if subs else " · no subagent transcripts found")
-    print(f"parsed {len(events)} events · {len(data['agents'])} agent runs · "
-          f"{n_caught} issues caught by gates · {n_err} errors{sub_note}")
+    print(f"{len(data['agents'])} agent runs · {len(data['findings'])} findings · "
+          f"{len(data['fix_loops'])} fix loops · {n_err} errors{sub_note}")
+    for n in data.get("notes", []):
+        print(f"note: {n}")
     print(f"wrote {out}")
+    print(f"wrote {summary_path(out)}")
     if args.open:
         webbrowser.open(out.resolve().as_uri())
 
