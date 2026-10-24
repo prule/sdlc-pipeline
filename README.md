@@ -9,6 +9,10 @@ use case ─▶ architect ─▶ spec-reviewer ─▶ 🚦 GATE 1 ─▶ junior-
             (plan)       (plan gate)      (you)        (implement)  (verify) (code review)  (you)
 ```
 
+For a faster run, the senior dev can implement instead of the junior dev: set **Implementer** in
+the profile, or pass `--senior` to `build-use-case`. A separate senior-dev run still does the code
+review.
+
 The planning and bookkeeping run on [OpenSpec](https://github.com/Fission-AI/OpenSpec). The plugin
 doesn't assume a stack: the agents bring the roles and the judgment, and each project brings its own
 stack rules in a short **profile** file (`.claude/sdlc-profile.md`).
@@ -22,13 +26,13 @@ stack rules in a short **profile** file (`.claude/sdlc-profile.md`).
 | Skill | `/sdlc-pipeline:write-standards` | Builds `standards/` from a catalogue of architecture and concern rules you keep, adapt or drop, and updates the profile to cite them. |
 | Skill | `/sdlc-pipeline:plan-use-cases` | Plans the product's use cases in `BACKLOG.md`: the MVP first, then one increment at a time. Entries are ticked as they're built. |
 | Skill | `/sdlc-pipeline:write-use-case <idea \| next>` | Interactively drafts a business use case from the domain docs (or the next backlog entry) and saves it to `use-cases/`. |
-| Skill | `/sdlc-pipeline:build-use-case <path>` | Runs the whole pipeline for one use case, with the two gates, fix loops, budget caps and the retrospective. |
+| Skill | `/sdlc-pipeline:build-use-case [--senior \| --junior] <path>` | Runs the whole pipeline for one use case, with the two gates, fix loops, budget caps and the retrospective. The flag picks who implements for this run. |
 | Skill | `session-report` | Turns a session log into an HTML report (agent timeline, gate value, errors, context use). Ask *"analyse this session"*. |
 | Agent | `architect` | Use case → OpenSpec change (proposal, design, spec delta, tasks). |
 | Agent | `spec-reviewer` | Read-only plan gate: standards conformance + design soundness. |
-| Agent | `junior-dev` | Implements `tasks.md` and stays inside the plan. |
+| Agent | `junior-dev` | Implements `tasks.md` and stays inside the plan. The default implementer. |
 | Agent | `qa` | Checks every requirement has a test, runs the suite, reports evidence. |
-| Agent | `senior-dev` | Final code review; fixes what it finds and hands design calls back. |
+| Agent | `senior-dev` | Final code review; fixes what it finds and hands design calls back. Implements instead of `junior-dev` when the project or run chooses it. |
 | Agent | `use-case-writer` | One-shot use-case drafting (the non-interactive `write-use-case`). |
 | Hooks | `hooks/hooks.json` | Logs every tool call and agent event to `logs/pipeline-events.jsonl` in the project. |
 | Script | `scripts/pipeline-report.py` | Renders that event log as an HTML dashboard. |

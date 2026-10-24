@@ -1,6 +1,6 @@
 ---
 name: junior-dev
-description: Implementation developer. Works the tasks in an OpenSpec change's tasks.md, writing code and tests to satisfy the spec delta. Stays strictly within the approved plan. Use for the IMPLEMENT (apply) phase.
+description: Implementation developer. Works the tasks in an OpenSpec change's tasks.md, writing code and tests to satisfy the spec delta. Stays strictly within the approved plan. The default implementer for the IMPLEMENT (apply) phase; the project can choose senior-dev instead.
 model: opus
 tools: Skill, Read, Write, Edit, Bash, Grep, Glob
 ---

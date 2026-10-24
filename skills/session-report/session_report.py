@@ -48,9 +48,14 @@ from pathlib import Path
 GATE_AGENTS = {"spec-reviewer", "senior-dev", "qa", "code-review", "reviewer"}
 
 
-def is_gate(subagent_type: str) -> bool:
-    """Plugin agents are namespaced (`sdlc-pipeline:qa`); match on the short name."""
-    return str(subagent_type).rsplit(":", 1)[-1] in GATE_AGENTS
+def is_gate(subagent_type: str, description: str = "") -> bool:
+    """Plugin agents are namespaced (`sdlc-pipeline:qa`); match on the short name.
+    A senior-dev run described `Implement …` builds the change rather than reviewing it
+    (the project chose the senior dev as implementer), so it is not a gate."""
+    name = str(subagent_type).rsplit(":", 1)[-1]
+    if name == "senior-dev" and str(description).strip().lower().startswith("implement"):
+        return False
+    return name in GATE_AGENTS
 
 
 # --------------------------------------------------------------------------- #
@@ -850,7 +855,7 @@ def analyze(events):
             sub = inp.get("subagent_type", "agent")
             m = re.search(r"agentId:\s*([\w-]+)", (res or {}).get("text") or "")
             agents.append({
-                **rec, "subagent": sub, "gate": is_gate(sub),
+                **rec, "subagent": sub, "gate": is_gate(sub, inp.get("description", "")),
                 "description": inp.get("description", ""),
                 "background": bool(inp.get("run_in_background")),
                 "agent_id": m.group(1) if m else None, "resume": False,
@@ -1499,15 +1504,19 @@ def render_findings(data, colours):
 def render_value_table(agents, colours, has_sub=False):
     if not agents:
         return '<p class="empty">No agents.</p>'
-    stats = defaultdict(lambda: {"runs": 0, "total": 0.0, "gate": False, "caught": 0, "err": 0,
+    stats = defaultdict(lambda: {"runs": 0, "gate_runs": 0, "total": 0.0, "gate": False,
+                                 "caught": 0, "err": 0,
                                  "calls": 0, "files": 0, "tokens": [], "models": set(),
                                  "efforts": set()})
     for a in agents:
         s = stats[a["subagent"]]
         s["runs"] += 1
         s["total"] += a["duration"] or 0
-        s["gate"] = a["gate"]
-        s["caught"] += int(bool(a.get("caught")))
+        # an agent type can both build and review (senior-dev as implementer): the catch
+        # rate is over its gate runs only
+        s["gate"] = s["gate"] or a["gate"]
+        s["gate_runs"] += int(bool(a["gate"]))
+        s["caught"] += int(bool(a["gate"] and a.get("caught")))
         s["err"] += int(bool(a["error"]))
         if a.get("model"):
             s["models"].add(a["model"])
@@ -1520,8 +1529,8 @@ def render_value_table(agents, colours, has_sub=False):
     for name, s in sorted(stats.items(), key=lambda kv: -kv[1]["total"]):
         avg = s["total"] / s["runs"] if s["runs"] else 0
         if s["gate"]:
-            val = (f'<span class="pill good">caught {s["caught"]}/{s["runs"]}</span>' if s["caught"]
-                   else f'<span class="pill warn">0/{s["runs"]}: approved all</span>')
+            val = (f'<span class="pill good">caught {s["caught"]}/{s["gate_runs"]}</span>' if s["caught"]
+                   else f'<span class="pill warn">0/{s["gate_runs"]}: approved all</span>')
         else:
             val = '<span class="muted">producer</span>'
         errc = f'<span class="pill bad">{s["err"]}</span>' if s["err"] else "0"

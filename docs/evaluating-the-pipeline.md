@@ -25,7 +25,7 @@ use-case-writer    (author the use case)
    spec-reviewer      ← plan gate (APPROVE / REQUEST CHANGES), then human GATE 1
         │
         ▼
-   junior-dev         → implements the tasks (the workhorse)
+   junior-dev         → implements the tasks (the workhorse; senior-dev if chosen)
         │
         ▼
    qa                 ← verifies against spec + tests (READY / NOT READY)
@@ -263,7 +263,9 @@ tell you *where* to look, the reports tell you *why*.
 Every retrospective records the model, effort and Claude Code version per agent in its front
 matter, so you can compare across runs without the transcripts: `grep -h 'junior-dev:'
 retrospectives/*.md`. Compare runs only when these match, or when the difference is the thing
-you're testing.
+you're testing. The `implementer` field says whether `junior-dev` or `senior-dev` implemented;
+`grep -l 'implementer: senior-dev' retrospectives/*.md` finds the senior runs, so you can compare
+fix loops, review findings and cost between the two modes.
 
 ---
 

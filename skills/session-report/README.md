@@ -178,6 +178,12 @@ Plugin agents are namespaced (`sdlc-pipeline:qa`). The report shows the full
 name and matches review gates on the short name, so `qa` and
 `sdlc-pipeline:qa` both count as the QA gate.
 
+`senior-dev` is a gate except when its Agent description starts with `Implement`.
+When a project chooses the senior dev as implementer, `build-use-case` gives that
+run an `Implement …` description. The report then treats it, and any resume of it,
+as a builder run: it gets no verdict, it can be a fix run in a QA loop, and the
+agent's catch rate counts only its code-review runs.
+
 ## Measuring whether `domain/` & `standards/` help
 
 A recurring question with the multi-agent pipeline: *is the context we curate in
