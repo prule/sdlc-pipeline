@@ -90,8 +90,9 @@ QA_BLOCK = """NOT READY.
 """
 
 
-def build_pipeline(root, with_meta, with_markers, extra_gate):
-    """Fixtures A and B. Returns (session path, expected token totals)."""
+def build_pipeline(root, with_meta, with_markers, extra_gate,
+                   implementer="sdlc-pipeline:junior-dev", code_review=False):
+    """Fixtures A, B and D. Returns (session path, expected token totals)."""
     main = Transcript("sessA")
     subs = {}
 
@@ -126,7 +127,7 @@ def build_pipeline(root, with_meta, with_markers, extra_gate):
     # Gate 1 approval
     main.tool(125, "AskUserQuestion", {"questions": [{"question": "Approve the plan?"}]}, 245, "yes")
     # junior-dev builds; qa rejects; junior-dev fixes; qa re-verifies
-    main.tool(250, "Agent", {"subagent_type": "sdlc-pipeline:junior-dev",
+    main.tool(250, "Agent", {"subagent_type": implementer,
                              "description": "Implement UC-007", "prompt": "Implement the change renew-loan."},
               550, "Done.\nagentId: agJ1", tid="toolu_A1")
     sub("agJ1", "Implement the change renew-loan.", 251,
@@ -137,7 +138,7 @@ def build_pipeline(root, with_meta, with_markers, extra_gate):
          ("resume", 735, "Fix Q1-Q3")]
         + [("tool", 740 + 10 * i, ("Bash", {"command": f"sed -i 's/a/b/' src/a.ts # {i}"}))
            for i in range(12)]
-        + [("say", 900, "Fixed.")], "toolu_A1", "Implement UC-007", "sdlc-pipeline:junior-dev")
+        + [("say", 900, "Fixed.")], "toolu_A1", "Implement UC-007", implementer)
     main.tool(555, "Agent", {"subagent_type": "sdlc-pipeline:qa",
                              "description": "Verify UC-007", "prompt": "Verify the change renew-loan."},
               720, QA_BLOCK + "\nagentId: agQ1", tid="toolu_A2")
@@ -160,6 +161,15 @@ def build_pipeline(root, with_meta, with_markers, extra_gate):
         main.tool(965, "Agent", {"subagent_type": "sdlc-pipeline:spec-reviewer",
                                  "description": "Review wording", "prompt": "Review the wording."},
                   990, "REQUEST CHANGES: the design misses a risk.\nagentId: agR9", tid="toolu_B3")
+    if code_review:
+        main.tool(965, "Agent", {"subagent_type": "sdlc-pipeline:senior-dev",
+                                 "description": "Code review UC-007", "prompt": "Review the diff for renew-loan."},
+                  995, "APPROVE. Fixes applied: src/a.ts:4 null check.\n\n## Run-log findings\n"
+                       "- **C1** · kind: code-defect · severity: medium · rule: — · where: `src/a.ts:4`"
+                       " · status: fixed-in-place\n\nagentId: agC1", tid="toolu_C1")
+        sub("agC1", "Review the diff for renew-loan.", 966,
+            [("tool", 970, ("Read", {"file_path": "/proj/src/a.ts"})),
+             ("say", 990, "APPROVE")], "toolu_C1", "Code review UC-007", "sdlc-pipeline:senior-dev")
     main.say(1000, "Pipeline finished.")
 
     path = root / "sessA.jsonl"
@@ -278,6 +288,27 @@ def test_fallbacks(root):
     check("B rejection with no fix is not a loop", [lp["gate"] for lp in data["fix_loops"]], ["qa"])
 
 
+def test_senior_implementer(root):
+    path, _ = build_pipeline(root / "D", with_meta=True, with_markers=True, extra_gate=False,
+                             implementer="sdlc-pipeline:senior-dev", code_review=True)
+    data = sr.analyze_session(path)
+    r = runs_by_id(data)
+    check("D implement run is not a gate", (r["toolu_A1"]["gate"], r["toolu_A1"]["verdict"]), (False, None))
+    check("D resumed fix is not a gate", r["toolu_S1"]["gate"], False)
+    check("D code review is a gate", (r["toolu_C1"]["gate"], r["toolu_C1"]["verdict"]),
+          (True, "fixed-in-place"))
+    check("D no findings from implement run", [x for x in data["findings"] if x["run"] == "toolu_A1"], [])
+    loops = data["fix_loops"]
+    check("D loop", [(lp["gate"], lp["fix_runs"], lp["recheck_run"]) for lp in loops],
+          [("qa", ["toolu_S1"], "toolu_S2")])
+    out = root / "D" / "out" / "sessA.report.html"
+    summary = sr.write_outputs(data, path.name, out, compact=False)
+    # two spec-reviewer, qa and its resume, the code review; not the implement run or its resume
+    check("D gate_runs", sr.session_metrics(path)["gate_runs"], 5)
+    check("D senior-dev runs", summary["agents"]["senior-dev"]["runs"], 3)
+    check("D catch rate over gate runs", "caught 1/1" in out.read_text(encoding="utf-8"), True)
+
+
 def test_no_agents(root):
     path, proj = build_no_agents(root / "C")
     data = sr.analyze_session(path, project_root=proj)
@@ -301,7 +332,7 @@ def test_no_agents(root):
 def main():
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
-        for test in (test_pipeline, test_fallbacks, test_no_agents):
+        for test in (test_pipeline, test_fallbacks, test_senior_implementer, test_no_agents):
             try:
                 test(root)
             except Exception as e:  # noqa: BLE001 - report and keep going

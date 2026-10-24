@@ -37,6 +37,14 @@ standards folders, the session report needs `--context-dirs` to match; the skill
 | **Pull requests target** | build-use-case | Named in the closing reminder. |
 | **Commits** | everyone | The commit message convention. |
 
+### Pipeline
+
+How the pipeline runs, as opposed to what the stack is.
+
+| Field | Used by | Meaning |
+|-------|---------|---------|
+| **Implementer** | build-use-case | Who implements the approved plan: `junior-dev` (the default) or `senior-dev`. The senior dev implements to the same plan rules, and a separate senior-dev run still does the code review. If the field or section is missing, the junior dev implements. Pass `--senior` or `--junior` to `build-use-case` to override it for one run. |
+
 ### Implementation rules
 
 The stack rules the junior dev follows and the reviewers enforce: contract-first, layering,

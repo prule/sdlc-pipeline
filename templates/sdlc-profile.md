@@ -34,6 +34,11 @@ Lines in <angle brackets> are placeholders. Replace them, or delete a line that 
 - **Pull requests target:** `<main | develop>`
 - **Commits:** `<e.g. Conventional Commits>`
 
+## Pipeline
+
+- **Implementer:** `junior-dev`. Who implements the approved plan: `junior-dev`, or `senior-dev`
+  for a faster run with fewer fix rounds. Override one run with `--senior` or `--junior`.
+
 ## Implementation rules
 
 <!-- The stack rules the junior dev follows and the reviewers enforce. One line each, linking the

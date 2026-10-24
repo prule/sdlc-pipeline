@@ -3,6 +3,27 @@
 All notable changes to this plugin. Versions follow [semver](https://semver.org/); before 1.0, a
 change that requires projects to edit their profile bumps the minor version.
 
+## [0.7.0] — 2026-10-24
+
+Choose who implements: the junior dev, as before, or the senior dev for a faster run with fewer
+fix rounds. Host projects need do nothing; without the new setting the junior dev implements.
+
+### Added
+- Profile setting **Implementer** (`junior-dev` | `senior-dev`) in a new `## Pipeline` section of
+  `templates/sdlc-profile.md`. A missing section means `junior-dev`.
+- `build-use-case --senior` and `--junior`: override the profile for one run. The profile is not
+  changed.
+- `senior-dev` implement mode. It follows the junior dev's procedure (`opsx:apply`, Implementation
+  rules, Verify) and still reports plan defects instead of redesigning. It now has the `Skill` tool.
+- Retrospective front matter field `implementer`.
+
+### Changed
+- `build-use-case` spawns the chosen implementer at stage 3 and sends QA defects back to it. Gate 1
+  shows `Implementer: <agent> (<source>)`. If the senior dev implemented, the code review is a new
+  senior-dev run that sees only the change name.
+- Session report: a `senior-dev` run described `Implement …` is a builder run, not a gate. Its
+  QA fix loops show correctly, and the senior dev's catch rate counts code-review runs only.
+
 ## [0.6.0] — 2026-10-05
 
 An MVP-first backlog of use cases, kept up to date as you build. Host projects need do nothing; run
