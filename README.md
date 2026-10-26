@@ -148,8 +148,10 @@ Set a project up in this order. [docs/getting-started.md](docs/getting-started.m
 `build-use-case` creates a `feat/uc-<n>-<slug>` branch from your base branch (as the profile says),
 runs the agents, stops for your approval at Gate 1 (the plan) and Gate 2 (the finished change), then
 writes `retrospectives/<date>-<change>.md`, `reports/sessions/<session>.report.html` and the run's
-data beside it, `<session>.summary.json`. Once the change is archived it ticks the use case's entry in
-`BACKLOG.md`. Commit them all with the change and open the PR.
+data beside it, `<session>.summary.json`. It also updates `retrospectives/LEDGER.md`, the
+[recommendation ledger](docs/pipeline.md#the-recommendation-ledger) that counts lessons which recur
+across runs and puts them to you at Gate 1. Once the change is archived it ticks the use case's
+entry in `BACKLOG.md`. Commit them all with the change and open the PR.
 
 ## Documentation
 

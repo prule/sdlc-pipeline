@@ -217,8 +217,9 @@ The pipeline tells you what's missing:
 - **Architect tasks.** When a change introduces a new term or durable rule, the plan includes a task
   to record it in `domain/`, and the spec-reviewer checks it's there.
 - **Retrospectives.** Each finding has a root cause. "Missing or unclear standard" and domain gaps
-  come with a recommended change to a standard or domain doc. A finding that recurs across runs is
-  ranked first.
+  come with a recommended change to a standard or domain doc. The
+  [recommendation ledger](pipeline.md#the-recommendation-ledger) counts each recommendation across
+  runs; one that recurs is ranked first, and at 3 runs Gate 1 asks you to adopt or close it.
 
 ## Keeping them useful
 
