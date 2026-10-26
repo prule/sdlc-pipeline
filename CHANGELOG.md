@@ -3,6 +3,30 @@
 All notable changes to this plugin. Versions follow [semver](https://semver.org/); before 1.0, a
 change that requires projects to edit their profile bumps the minor version.
 
+## [0.8.0] — 2026-10-27
+
+A recommendation ledger, so retrospective lessons get adopted instead of recurring run after run.
+Host projects need do nothing; the next run creates `retrospectives/LEDGER.md` if it is missing.
+
+### Added
+- `templates/ledger.md`: the ledger's rules and empty *Open* and *Closed* tables. Each line has an
+  id (`L-<n>`), the recommendation, its target, a count of the records it appears in, and a status.
+  A line with 3 or more records is *due*.
+- `init` creates `LEDGER.md` beside the retrospectives README in a new retrospectives folder.
+
+### Changed
+- `build-use-case` step 0 reads the ledger's open lines and briefs the architect, and later agents,
+  on the lines that apply. Gate 1 lists the due lines that apply and asks, for each, whether to
+  adopt it in this run or keep or close it with a reason.
+- `build-use-case` step 7 matches each recommendation to a ledger line, adds 1 to its count and
+  writes `· ledger: L-<n>` in the record. New open recommendations get a new line; Gate 1 answers
+  move lines to *Closed*. The status line shows ledger counts, and the commit reminder names
+  `LEDGER.md`.
+- The ledger replaces the five-record `recurs:` scan. The scan now runs once, to seed a missing
+  ledger.
+- `templates/retrospective.md` and `templates/retrospectives-README.md` link recommendations to
+  ledger ids. `docs/pipeline.md` describes the ledger flow.
+
 ## [0.7.0] — 2026-10-24
 
 Choose who implements: the junior dev, as before, or the senior dev for a faster run with fewer

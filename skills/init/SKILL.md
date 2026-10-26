@@ -36,7 +36,9 @@ live under `${CLAUDE_PLUGIN_ROOT}`.
    - the use-cases folder (empty; the plugin's template is used unless the project adds its own
      `TEMPLATE.md`);
    - the retrospectives folder with `README.md` copied from
-     `${CLAUDE_PLUGIN_ROOT}/templates/retrospectives-README.md`;
+     `${CLAUDE_PLUGIN_ROOT}/templates/retrospectives-README.md` and `LEDGER.md` copied from
+     `${CLAUDE_PLUGIN_ROOT}/templates/ledger.md` (if the folder exists but has no `LEDGER.md`,
+     leave it: the first run seeds it from the existing records);
    - the session-reports folder with a `.gitkeep`.
 
 4. **Domain and standards docs.** If the domain folder is missing, tell the user the agents rely on

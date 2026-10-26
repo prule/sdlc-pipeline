@@ -108,13 +108,32 @@ gate, escalated or aborted. Failed runs teach the most. The orchestrator writes 
 - every fix-loop round, stall and escalation;
 - the session report it generates for the run.
 
-Before writing, it reads the five most recent records and marks any finding that **recurs**. A
-recurring finding means an input (a standard, the profile, an OpenSpec rule, an agent instruction,
-the use-case template) isn't working, so its recommendation is ranked first. Recommendations always
-change an input, never "be more careful".
+Recommendations always change an input (a standard, the profile, an OpenSpec rule, an agent
+instruction, the use-case template), never "be more careful".
+
+### The recommendation ledger
+
+`retrospectives/LEDGER.md` keeps one line per open or recurring recommendation: an id (`L-<n>`),
+the recommendation, its target, the number of records it appears in, and a status. It makes
+lessons get adopted instead of just recurring:
+
+1. **Step 0.** The orchestrator reads the open lines and briefs the architect on each one that
+   applies to the use case. Later agents get the lines for their phase.
+2. **Gate 1.** The orchestrator lists the applying lines that are **due** (3 or more records). For
+   each, you adopt it in this run, or give a reason to keep it open or to close it.
+3. **Step 7.** The orchestrator matches each new recommendation to an open line. A match adds 1 to
+   the line's count, ranks the recommendation first, and puts `· ledger: L-<n>` in the record. A new
+   recommendation that is still open after the run gets a new line. Lines adopted or closed at
+   Gate 1 move to *Closed*.
+
+If the ledger is missing, step 7 creates it from [`templates/ledger.md`](../templates/ledger.md) and
+seeds it with the recommendations that recur in the five most recent records. After that, the
+ledger's counts replace reading earlier records for recurrence. Commit `LEDGER.md` with the
+retrospective.
 
 Adopt a recommendation where its target lives: standards, the profile and domain docs are in the
-project; agent and skill instructions are in this plugin, so open an issue or PR here.
+project; agent and skill instructions are in this plugin, so open an issue or PR here. Put the PR
+or issue in the ledger line's status.
 
 ## Running phases by hand
 

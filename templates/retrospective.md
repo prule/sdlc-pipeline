@@ -73,7 +73,10 @@ Same columns as above. Write "None." if there were none.>
 
 <Deduplicated, most valuable first. Each is a concrete change to the pipeline's inputs — a standard,
 the project profile, an `openspec/config.yaml` rule, an agent instruction, a `domain/` doc or the use-case template —
-never "be more careful". Mark findings that also appear in earlier records. Tick a box when the
-change is adopted and note the PR.>
+never "be more careful". End each with its line in `LEDGER.md`: `· ledger: L-<n>` when it matches
+an open line (rank those first), `· ledger: L-<n> (new)` when this run added the line. A
+recommendation adopted during the run has no line. Tick a box when the change is adopted and note
+the PR.>
 
-- [ ] **R1** — <change> → `<target file>` (from F1, S1) · recurs: `<earlier record>.md`
+- [ ] **R1** — <change> → `<target file>` (from F1, S1) · ledger: L-8
+- [ ] **R2** — <change> → `<target file>` (from S1) · ledger: L-17 (new)
