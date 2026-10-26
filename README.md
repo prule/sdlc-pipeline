@@ -36,7 +36,7 @@ stack rules in a short **profile** file (`.claude/sdlc-profile.md`).
 | Agent | `use-case-writer` | One-shot use-case drafting (the non-interactive `write-use-case`). |
 | Hooks | `hooks/hooks.json` | Logs every tool call and agent event to `logs/pipeline-events.jsonl` in the project. |
 | Script | `scripts/pipeline-report.py` | Renders that event log as an HTML dashboard. |
-| Templates | `templates/` | Profile, use case, backlog, retrospective, retrospectives README, and the standards catalogue (`templates/standards/`). |
+| Templates | `templates/` | Profile, use case, backlog, retrospective, retrospectives README, recommendation ledger, and the standards catalogue (`templates/standards/`). |
 
 Agents show up namespaced, for example `sdlc-pipeline:architect` in `/agents`, and you can run one
 by itself: *"Use the sdlc-pipeline:qa agent to verify add-product-search"*.

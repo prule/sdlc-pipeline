@@ -6,7 +6,7 @@ Three tools answer three questions about a run:
 |------|---------|--------|
 | Event-log hooks | What did this run touch? | `logs/pipeline-events.jsonl`, `logs/pipeline-report.html` |
 | Session report | Did each agent, gate and context doc earn its place? | `reports/sessions/<session>.report.html`, `<session>.summary.json` |
-| Retrospectives | What keeps going wrong, and what should change? | `retrospectives/<date>-<change>.md` (see [pipeline.md](pipeline.md#retrospectives)) |
+| Retrospectives | What keeps going wrong, and what should change? | `retrospectives/<date>-<change>.md` and `retrospectives/LEDGER.md` (see [pipeline.md](pipeline.md#retrospectives)) |
 
 For cost and token trends over many runs, Claude Code's built-in OpenTelemetry export works alongside
 these. See the [monitoring docs](https://code.claude.com/docs/en/monitoring-usage).
