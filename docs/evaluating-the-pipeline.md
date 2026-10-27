@@ -317,4 +317,5 @@ Skim these on any run:
 | Engineering standards | `standards/` in your project |
 | Project profile | `.claude/sdlc-profile.md` in your project |
 | Run retrospectives (findings, root causes, recommendations) | `retrospectives/` in your project |
+| Recommendation ledger (recurring recommendations and their counts) | `retrospectives/LEDGER.md` in your project |
 | Session logs (raw) | `~/.claude/projects/<slug>/<session-id>.jsonl` |

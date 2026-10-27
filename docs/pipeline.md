@@ -44,15 +44,18 @@ economy here. No agent can spawn agents; only the orchestrator does.
 ## Stages
 
 0. **Prepare.** The orchestrator reads the profile and the use case, notes the use case's open
-   questions, and makes sure it is on a use-case branch (`feat/uc-<n>-<slug>` from the base branch),
-   never on the base branch itself.
+   questions, resolves the implementer, and reads the open lines of the
+   [recommendation ledger](#the-recommendation-ledger) to brief the agents on the ones that apply.
+   It makes sure it is on a use-case branch (`feat/uc-<n>-<slug>` from the base branch), never on
+   the base branch itself.
 1. **Plan.** The architect creates the OpenSpec change. Every main-flow step, alternative flow and
    business rule of the use case maps to a requirement or scenario, or is marked out of scope. The
    change must pass `openspec validate --strict`.
 2. **Plan gate.** The spec-reviewer checks the plan against the profile's *Plan review* checklist,
    the domain docs, and design and task quality. On REQUEST CHANGES the architect revises.
-   - 🚦 **Gate 1, you:** the proposal summary, the design decisions, the reviewer's verdict and every
-     open question. You answer proceed, revise or stop.
+   - 🚦 **Gate 1, you:** the proposal summary, the design decisions, the reviewer's verdict, every
+     open question, the implementer and where that choice came from, and the due ledger lines. You
+     answer proceed, revise or stop, and adopt, keep or close each due line.
 3. **Implement.** The implementer (the junior dev, or the senior dev if chosen) works `tasks.md`
    and verifies with the profile's Verify command. A blocker or plan defect goes back to the
    architect; the implementer doesn't improvise.

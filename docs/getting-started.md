@@ -47,7 +47,8 @@ Keep it at the business level. How the system is built belongs in the standards 
 ## 2. Set up the project
 
 Install the OpenSpec CLI, run `openspec init`, then run `/sdlc-pipeline:init`. It writes the profile
-(`.claude/sdlc-profile.md`) and creates the use-case, retrospective and session-report folders. See
+(`.claude/sdlc-profile.md`) and creates the use-case, retrospective and session-report folders. The
+retrospectives folder gets a README and an empty recommendation ledger, `LEDGER.md`. See
 the [README](../README.md#prerequisites) for the prerequisites.
 
 ## 3. Document the domain

@@ -15,7 +15,8 @@ link here by id, so a lesson that comes back adds a count, not another copy of i
 - **Limit:** a line with 3 or more records is *due*. At Gate 1 the human adopts it in that run, or
   writes a reason to keep it open or to close it.
 - **Adopting:** edit the target files in a PR, move the line to Closed with *Status*
-  `adopted, #<PR>`, and tick the matching items in the records. A target in the plugin
+  `adopted, #<PR>`, and tick the matching items in the records. A line adopted during a run is
+  first closed with `adopted, <branch>`; replace the branch with the PR number once the PR is open. A target in the plugin
   (an agent or skill) is adopted by an issue or PR in
   [`prule/sdlc-pipeline`](https://github.com/prule/sdlc-pipeline); put its link in *Status*.
 - **Ids:** `L-<n>`, the next number after the highest in either table. An id is never reused.
