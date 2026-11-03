@@ -38,7 +38,7 @@ Spawn the plugin's agents by their namespaced type: `sdlc-pipeline:architect`, `
 
 5. **Code review (pre-archive gate).** Spawn `sdlc-pipeline:senior-dev` for a final code review of the diff. Start its description with `Code review`. If the senior dev implemented the change, spawn a **new** senior-dev run; never resume the implementing run, and pass only the change name, so the review does not inherit the implementer's reasoning. The senior dev **fixes the issues it finds directly** and re-verifies with the profile's Verify command; relay both the fixes it applied and its verdict. It returns REQUEST CHANGES only for issues it deliberately did not fix because they need a design/plan/scope decision — route those to the architect (via the spec-reviewer if the plan itself is wrong), not to the implementer.
 
-   🚦 **GATE 2 — merge/archive approval.** Show the human: QA verdict + evidence, the code-review findings, and the list of files changed (`git status --short`). Ask whether to archive the change. Wait for explicit approval.
+   🚦 **GATE 2 — merge/archive approval.** Show the human: QA verdict + evidence, QA's `Static analysis:` line, the code-review findings, and the list of files changed (`git status --short`). Ask whether to archive the change. Wait for explicit approval.
 
 6. **Archive.** On approval, invoke the `openspec-archive-change` skill for the change to fold the spec deltas into the main specs. Report the final status.
 

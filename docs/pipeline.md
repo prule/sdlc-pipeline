@@ -60,13 +60,15 @@ economy here. No agent can spawn agents; only the orchestrator does.
    and verifies with the profile's Verify command. A blocker or plan defect goes back to the
    architect; the implementer doesn't improvise.
 4. **Verify.** QA builds a requirement → test checklist, adds missing tests, runs the suite and
-   returns READY TO ARCHIVE or NOT READY. Defects go back to the implementer.
+   returns READY TO ARCHIVE or NOT READY. If the profile turns on **Static analysis**, QA also runs
+   the scan once Verify passes, and each issue a failed quality gate lists is a defect. Defects go
+   back to the implementer. See [Static analysis](#static-analysis).
 5. **Code review.** The senior dev reviews the diff against the spec and the profile's *Code review*
    checklist, fixes what it finds and re-verifies. It hands back only what needs a design, plan or
    scope decision; that goes to the architect. If the senior dev implemented, this is a new
    senior-dev run that sees only the change name, so the review stays independent.
-   - 🚦 **Gate 2, you:** the QA evidence, the review findings and the changed files. You approve the
-     archive or not.
+   - 🚦 **Gate 2, you:** the QA evidence and its static-analysis result, the review findings and
+     the changed files. You approve the archive or not.
 6. **Archive.** `openspec-archive-change` folds the spec delta into `openspec/specs/` and moves the
    change to `openspec/changes/archive/`. If the project has a `BACKLOG.md` (from
    `/sdlc-pipeline:plan-use-cases`), the orchestrator then ticks the use case's entry as built,
@@ -88,6 +90,33 @@ agent in your answer to switch. The senior dev implements to the same rules as t
 follows the plan and reports plan defects instead of redesigning. QA defects go back to it. The
 code review is still a separate senior-dev run. You save the junior dev's fix rounds, not the
 review. Each retrospective records `implementer`, so you can compare the two modes.
+
+## Static analysis
+
+Off by default. To have QA run a static-analysis scan, such as SonarQube through a `sonar-check`
+wrapper, name the command in the profile:
+
+```markdown
+## Pipeline
+
+- **Static analysis:** `sonar-check`
+```
+
+The command must scan the project and exit non-zero, listing the issues, when the analysis
+server's quality gate fails. You provide the command and the server; the plugin only runs it.
+
+QA runs it once per QA round, after Verify passes. Its report says
+`Static analysis: off | passed | failed (<n> issues) | not run (<reason>)`, and Gate 2 shows that
+line.
+
+- **Failed quality gate:** each issue is a defect, so QA returns NOT READY and the issues go back to
+  the implementer in the usual qa↔implementer loop. The re-verify scans again. A suppression comment
+  the change adds without a reason is a defect too.
+- **Scan can't run** (server down, no token, command missing): QA reports it once as an infra issue
+  and judges the verdict on the rest of the evidence. Gate 2 shows `not run`, so you decide whether
+  to archive without the scan.
+
+Only QA runs the scan. To have every agent run it, add it to the **Verify** command instead.
 
 ## Budget guardrails
 

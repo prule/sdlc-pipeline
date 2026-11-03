@@ -38,6 +38,8 @@ Lines in <angle brackets> are placeholders. Replace them, or delete a line that 
 
 - **Implementer:** `junior-dev`. Who implements the approved plan: `junior-dev`, or `senior-dev`
   for a faster run with fewer fix rounds. Override one run with `--senior` or `--junior`.
+- **Static analysis:** `off`. A scan QA runs after Verify, or `off`. To turn it on, give the
+  command that scans the project and exits non-zero when the quality gate fails, e.g. `sonar-check`.
 
 ## Implementation rules
 

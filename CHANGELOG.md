@@ -3,6 +3,24 @@
 All notable changes to this plugin. Versions follow [semver](https://semver.org/); before 1.0, a
 change that requires projects to edit their profile bumps the minor version.
 
+## [0.9.0] — 2026-11-03
+
+An optional static-analysis scan in QA, such as SonarQube through a `sonar-check` wrapper. It is
+off by default. Host projects need do nothing; to turn it on, add the setting to the profile.
+
+### Added
+- Profile setting **Static analysis** in the `## Pipeline` section of `templates/sdlc-profile.md`:
+  `off` (the default, and what a missing setting means) or the command that scans the project and
+  exits non-zero when the quality gate fails.
+- `qa` runs that command once, after Verify passes. Each issue a failed quality gate lists is a
+  defect that goes back to the implementer; an unexplained suppression comment is a defect too. A
+  scan that can't run is reported once as an infra issue and doesn't decide the verdict.
+- QA's report has a `Static analysis: off | passed | failed (<n> issues) | not run (<reason>)` line.
+
+### Changed
+- `build-use-case` Gate 2 shows QA's static-analysis line.
+- `docs/pipeline.md` has a Static analysis section; `docs/profile.md` documents the setting.
+
 ## [0.8.0] — 2026-10-27
 
 A recommendation ledger, so retrospective lessons get adopted instead of recurring run after run.

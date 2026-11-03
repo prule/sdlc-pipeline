@@ -44,6 +44,7 @@ How the pipeline runs, as opposed to what the stack is.
 | Field | Used by | Meaning |
 |-------|---------|---------|
 | **Implementer** | build-use-case | Who implements the approved plan: `junior-dev` (the default) or `senior-dev`. The senior dev implements to the same plan rules, and a separate senior-dev run still does the code review. If the field or section is missing, the junior dev implements. Pass `--senior` or `--junior` to `build-use-case` to override it for one run. |
+| **Static analysis** | qa | `off` (the default), or a command QA runs once after Verify passes, such as `sonar-check`. The command must scan the project and exit non-zero when the analysis server's quality gate fails, listing the issues. QA hands each issue back to the implementer as a defect. If the scan can't run (server down, no token), QA reports it as an infra issue and doesn't block on it. If the field is missing, it is `off`. The command and the analysis server are yours to provide. |
 
 ### Implementation rules
 
