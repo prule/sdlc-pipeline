@@ -31,7 +31,7 @@ stack rules in a short **profile** file (`.claude/sdlc-profile.md`).
 | Agent | `architect` | Use case → OpenSpec change (proposal, design, spec delta, tasks). |
 | Agent | `spec-reviewer` | Read-only plan gate: standards conformance + design soundness. |
 | Agent | `junior-dev` | Implements `tasks.md` and stays inside the plan. The default implementer. |
-| Agent | `qa` | Checks every requirement has a test, runs the suite, reports evidence. |
+| Agent | `qa` | Checks every requirement has a test, runs the suite, reports evidence. Runs a static-analysis scan too, if the profile turns it on. |
 | Agent | `senior-dev` | Final code review; fixes what it finds and hands design calls back. Implements instead of `junior-dev` when the project or run chooses it. |
 | Agent | `use-case-writer` | One-shot use-case drafting (the non-interactive `write-use-case`). |
 | Hooks | `hooks/hooks.json` | Logs every tool call and agent event to `logs/pipeline-events.jsonl` in the project. |
