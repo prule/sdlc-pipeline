@@ -1166,6 +1166,48 @@ def relative_files(files, root):
     return out
 
 
+SKILL_BASE = "Base directory for this skill:"
+COMMAND_RE = re.compile(r"<command-name>/?([^<\s]+)</command-name>")
+
+
+def slash_skills(events):
+    """Skills you typed as slash commands: a <command-name> message that Claude Code
+    follows with the skill's body. Built-in commands such as /clear get no body."""
+    out, pending = [], None
+    for ev in events:
+        if ev.get("type") != "user":
+            continue
+        text = msg_text(ev.get("message"))
+        if pending and text.lstrip().startswith(SKILL_BASE):
+            out.append(pending)
+        pending = None
+        m = COMMAND_RE.search(text)
+        if m:
+            pending = {"skill": m.group(1), "where": "you", "run": None,
+                       "ts": parse_ts(ev.get("timestamp")), "args": ""}
+    return out
+
+
+def skill_uses(data, events):
+    """Every skill invoked, and where: by you, by the orchestrator, or inside which
+    agent run."""
+    def calls(tools, where, run):
+        return [{"skill": t["input"].get("skill", "?"), "where": where, "run": run,
+                 "ts": t.get("start"), "args": t["input"].get("args") or ""}
+                for t in tools if t["name"] == "Skill" and isinstance(t["input"], dict)]
+    uses = slash_skills(events) + calls(data["tools"], "orchestrator", None)
+    linked = set()
+    for a in data["agents"]:
+        sub = a.get("sub")
+        if sub:
+            linked.add(sub.get("agent_id"))
+            uses += calls(sub["tools"], short_name(a["subagent"]), a["id"])
+    for aid, s in data["subagents"].items():
+        if aid not in linked:
+            uses += calls(s["tools"], short_name(s["meta"].get("agentType") or "subagent"), None)
+    return sorted(uses, key=lambda u: u["ts"] or datetime.max.replace(tzinfo=timezone.utc))
+
+
 def analyze_session(path, project_root=None, no_subagents=False):
     """Everything the report and the summary need, from one session log."""
     events = load_events(path)
@@ -1188,6 +1230,7 @@ def analyze_session(path, project_root=None, no_subagents=False):
                                       *(tokens4(s["tokens"]) for s in data["subagents"].values()))
     data["use_case"], data["change"] = find_ids(data)
     data["ctx"] = build_context(data, project_root=project_root)
+    data["skills"] = skill_uses(data, events)
     return data
 
 
@@ -1347,6 +1390,7 @@ def render(data, source_name, compact):
         ctx_title=" &amp; ".join(esc(d) for d in CONTEXT_DIRS),
         errors=render_error_panel(errors),
         tools=scope_note + render_tools(data["tool_stats_all"]),
+        skills=render_skills(data["skills"]),
         files=scope_note + render_files(data["files_all"]),
         feed=render_feed(data["timeline"], colours))
 
@@ -1683,6 +1727,31 @@ def render_tools(stats):
       <thead><tr><th>Tool</th><th style="width:38%"></th><th class="num">Calls</th>
       <th class="num">Total time</th><th class="num">Errors</th></tr></thead>
       <tbody>{''.join(rows)}</tbody></table>'''
+
+
+def render_skills(uses):
+    if not uses:
+        return '<p class="empty">No skills invoked.</p>'
+    by_skill = defaultdict(Counter)
+    for u in uses:
+        by_skill[u["skill"]][u["where"]] += 1
+    rows = []
+    for name, where in sorted(by_skill.items(), key=lambda kv: -sum(kv[1].values())):
+        badges = " ".join(f'<span class="fop read">{esc(w)} ×{n}</span>'
+                          for w, n in where.most_common())
+        rows.append(f'''<tr><td>{esc(name)}</td><td>{badges}</td>
+          <td class="num">{sum(where.values())}</td></tr>''')
+    feed = "".join(f'''<tr><td class="muted">{esc(fmt_ts(u["ts"]) if u["ts"] else "—")}</td>
+          <td>{esc(u["skill"])}</td><td>{esc(u["where"])}</td>
+          <td class="muted">{esc(truncate(u["args"], 120))}</td></tr>''' for u in uses)
+    return f'''<p class="note">"you" = typed as a slash command; "orchestrator" = the
+      top-level session; anything else is the agent that called it.</p>
+      <table class="vtable">
+      <thead><tr><th>Skill</th><th>Used by</th><th class="num">Calls</th></tr></thead>
+      <tbody>{''.join(rows)}</tbody></table>
+      <details class="inner"><summary>Every call</summary><table class="vtable">
+      <thead><tr><th>When</th><th>Skill</th><th>Where</th><th>Args</th></tr></thead>
+      <tbody>{feed}</tbody></table></details>'''
 
 
 def render_files(files):
@@ -2035,6 +2104,9 @@ details.inner > summary {{ cursor:pointer; color:var(--muted); font-size:12px; m
   <details class="diag"><summary><h2>Tool usage</h2></summary>
   <div class="panel">{tools}</div></details>
 
+  <details class="diag"><summary><h2>Skills used</h2></summary>
+  <div class="panel">{skills}</div></details>
+
   <details class="diag"><summary><h2>Files touched</h2></summary>
   <div class="panel">{files}</div></details>
 
@@ -2251,6 +2323,7 @@ def run_summary(data, out):
         "findings": data["findings"],
         "fix_loops": [{k: v for k, v in lp.items() if k not in ("start", "end")}
                       for lp in data["fix_loops"]],
+        "skills": [{**u, "ts": _iso(u["ts"])} for u in data["skills"]],
         "notes": data.get("notes", []),
     }
 

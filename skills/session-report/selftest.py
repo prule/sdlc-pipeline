@@ -329,10 +329,26 @@ def test_no_agents(root):
     check("C orchestrator model", summary["orchestrator"]["model"], "claude-opus-5-5")
 
 
+def test_skills(root):
+    def user(text, sec):
+        return {"type": "user", "timestamp": ts(sec), "message": {"role": "user", "content": text}}
+    events = [user("<command-name>/clear</command-name>", 0),
+              user("<command-name>/pr</command-name>", 1),
+              user("Base directory for this skill: /x", 2)]
+    skill = {"name": "Skill", "input": {"skill": "opsx:apply", "args": "c"}, "start": None}
+    data = {"tools": [skill], "subagents": {"b": {"tools": [skill], "meta": {"agentType": "x:qa"}}},
+            "agents": [{"id": "t1", "subagent": "x:architect",
+                        "sub": {"agent_id": "a", "tools": [skill]}}]}
+    got = [(u["skill"], u["where"]) for u in sr.skill_uses(data, events)]
+    check("skills where", got, [("pr", "you"), ("opsx:apply", "orchestrator"),
+                                ("opsx:apply", "architect"), ("opsx:apply", "qa")])
+
+
 def main():
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
-        for test in (test_pipeline, test_fallbacks, test_senior_implementer, test_no_agents):
+        for test in (test_pipeline, test_fallbacks, test_senior_implementer, test_no_agents,
+                     test_skills):
             try:
                 test(root)
             except Exception as e:  # noqa: BLE001 - report and keep going

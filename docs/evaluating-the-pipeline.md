@@ -115,6 +115,7 @@ question:
 | **Context** | Q3 — are `domain/`/`standards/` read & used | High-influence docs read *before* writing; catches cite docs |
 | **Errors & friction** *(collapsed)* | Where the run stumbled | Few command errors; few rejected tool calls |
 | **Tool usage** *(collapsed)* | Where time/effort went per tool | No single tool dominating unexpectedly |
+| **Skills used** *(collapsed)* | Which skills ran, and in which agent | Each agent using the skills its role expects |
 | **Files touched** *(collapsed)* | What was read/written/edited across the whole run | Writes concentrated in the change's area |
 | **Activity feed** *(collapsed)* | The narrative — prompts, decisions, tool calls | Sanity-check the reasoning where a metric surprises you |
 

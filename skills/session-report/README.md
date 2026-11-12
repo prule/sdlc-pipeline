@@ -114,6 +114,8 @@ object. Abridged:
   "fix_loops": [{"gate": "qa", "started_by": "toolu_…", "findings": ["Q1", "Q2"],
                  "fix_runs": ["toolu_…"], "recheck_run": "toolu_…",
                  "duration_s": 257.5, "tool_calls": 12, "tokens": {"…": 0}}],
+  "skills": [{"skill": "opsx:propose", "where": "architect", "run": "toolu_…",
+              "ts": "2026-10-05T01:02:00Z", "args": "…"}],
   "notes": []
 }
 ```
@@ -129,6 +131,9 @@ object. Abridged:
 - Tokens are counts only, never prices.
 - `findings` has one entry per finding per gate run, so a finding a re-check
   confirms as fixed appears twice, with each run's status.
+- `skills` has one entry per skill invocation, in time order. `where` is `you`,
+  `orchestrator`, or the agent type; `run` is the agent run's id (null for you
+  and the orchestrator). Built-in slash commands such as `/clear` are left out.
 - `notes` lists any fallbacks the analysis used (see "How it works").
 - A session that spawned no agents has `"agents": {}` and empty `runs` and
   `fix_loops`.
@@ -149,6 +154,7 @@ run, then the evidence. Diagnostics are collapsed until you open them.
 | **Context** | Whether the curated docs (`domain/` and `standards/` by default, see `--context-dirs`) reach the agents; see below. |
 | **Errors & friction** *(collapsed)* | Failed commands, failed agents, and tool calls you rejected. |
 | **Tool usage** *(collapsed)* | Every tool called, top-level and inside subagents, with count, time and errors. |
+| **Skills used** *(collapsed)* | Every skill invoked and where: `you` (typed as a slash command), `orchestrator` (the top-level session), or the agent that called it. **Every call** (expandable) lists each call with its time and args. |
 | **Files touched** *(collapsed)* | Every project file read, written or edited across the run, including through shell commands, relative to the project root. Claude Code's own files (tool results, transcripts, the scratchpad) are left out. |
 | **Activity feed** *(collapsed)* | Chronological, filterable stream: prompts, decisions, tool calls, agent results, thinking. |
 
