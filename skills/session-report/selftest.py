@@ -12,6 +12,8 @@ Fixtures:
      with no findings block.
   C  no agents: shell reads of context docs, an internal tool-result read, a
      question to the user and a wait for the next prompt.
+  E  secrets and personal data planted everywhere a transcript carries text,
+     in a project under /home/alice.
 """
 import json
 import subprocess
@@ -39,13 +41,13 @@ def ts(sec):
 class Transcript:
     """Builds one .jsonl transcript and tallies the tokens it records."""
 
-    def __init__(self, session="sess"):
-        self.lines, self.session, self.n = [], session, 0
+    def __init__(self, session="sess", cwd=CWD):
+        self.lines, self.session, self.n, self.cwd = [], session, 0, cwd
         self.tokens = {k: 0 for k in USAGE}
 
     def _ev(self, sec, etype, message, **extra):
         self.lines.append({"type": etype, "timestamp": ts(sec), "sessionId": self.session,
-                           "cwd": CWD, "version": "2.1.0", "gitBranch": "feat/x",
+                           "cwd": self.cwd, "version": "2.1.0", "gitBranch": "feat/x",
                            "message": message, **extra})
 
     def prompt(self, sec, text):
@@ -204,6 +206,42 @@ def build_no_agents(root):
     return path, proj
 
 
+# Fixture E's planted values: none of them, nor their first 8 characters, may reach
+# an output file.
+PRIVATE_KEY = ("-----BEGIN RSA PRIVATE KEY-----\nMIIEpAIBAAKCAQEA1b2c3d4e5f6g7h8\n"
+               "-----END RSA PRIVATE KEY-----")
+BEARER = "Zq9xWv7Ut5Sr3Qp1"
+OPENAI = "sk-proj-Fh28dKq01LmZp93xTaB7"
+SUB_SECRET = "Yh7Gt5Rf3Ed1"
+EMAIL = "alice.smith@example.org"
+PLANTED = [PRIVATE_KEY, "MIIEpAIBAAKCAQEA", BEARER, OPENAI, SUB_SECRET, EMAIL, "alice"]
+
+
+def build_secrets(root):
+    """Fixture E. Returns the session path."""
+    home = "/home/alice/proj"
+    main = Transcript("sessE", cwd=home)
+    main.prompt(0, "Deploy with this key:\n" + PRIVATE_KEY)
+    main.tool(5, "Bash", {"command": f'curl -H "Authorization: Bearer {BEARER}" https://api.test'}, 6)
+    main.tool(10, "Skill", {"skill": "opsx:apply", "args": f"use {OPENAI}"}, 11)
+    main.tool(15, "Read", {"file_path": f"{home}/src/app.ts"}, 16)
+    main.tool(20, "Agent", {"subagent_type": "sdlc-pipeline:qa", "description": "Verify",
+                            "prompt": "Verify the change."},
+              60, f"READY. Contact {EMAIL}.\n\n## Run-log findings\nNone\n\nagentId: agE1",
+              tid="toolu_E1")
+    sub = Transcript("agE1", cwd=home)
+    sub.prompt(21, "Verify the change.")
+    sub.tool(25, "Bash", {"command": f"export PAYMENTS_SECRET_KEY={SUB_SECRET} && make test"}, 30)
+    sub.say(55, "READY")
+    main.say(65, "Done.")
+    path = root / "sessE.jsonl"
+    main.write(path)
+    sub.write(root / "sessE" / "subagents" / "agent-agE1.jsonl")
+    (root / "sessE" / "subagents" / "agent-agE1.meta.json").write_text(json.dumps(
+        {"agentType": "sdlc-pipeline:qa", "toolUseId": "toolu_E1"}))
+    return path
+
+
 def check(name, got, want):
     if got != want:
         FAILS.append(f"{name}: got {got!r}, want {want!r}")
@@ -327,6 +365,88 @@ def test_no_agents(root):
     summary = sr.write_outputs(data, path.name, out, compact=False)
     check("C empty runs", (summary["agents"], summary["runs"], summary["fix_loops"]), ({}, [], []))
     check("C orchestrator model", summary["orchestrator"]["model"], "claude-opus-5-5")
+    check("C no redaction", (data["redactions"], summary["notes"]), ({}, []))
+
+
+def test_redaction(root):
+    samples = {
+        "private-key": PRIVATE_KEY,
+        "aws-key": "AKIAIOSFODNN7EXAMPLE",
+        "github-token": "ghp_" + "a1" * 18,
+        "gitlab-token": "glpat-abcdefghij0123456789",
+        "slack-token": "xoxb-1234567890-abcdef",
+        "stripe-key": "sk_live_abcdefghij012345",
+        "anthropic-key": "sk-ant-api03-abcdefghij0123456789",
+        "openai-key": OPENAI,
+        "google-key": "AIza" + "B" * 35,
+        "npm-token": "npm_" + "c" * 36,
+        "jwt": "eyJhbGciOi.eyJzdWIiOi.c2lnbmF0dXJl",
+        "email": EMAIL,
+    }
+    for kind, value in samples.items():
+        check(f"redact {kind}", sr.redact(f"x {value} y"), f"x [REDACTED:{kind}] y")
+    kept = {
+        "Authorization: Bearer abcdefghijk": "Authorization: Bearer [REDACTED:bearer]",
+        "Authorization: Basic dXNlcjpwYXNz": "Authorization: Basic [REDACTED:basic]",
+        "postgres://bob:s3cret@db/x": "postgres://bob:[REDACTED:url-password]@db/x",
+        "export STRIPE_SECRET_KEY=sk_live_abcdefghij012345":
+            "export STRIPE_SECRET_KEY=[REDACTED:stripe-key]",
+        '"password": "hunter2"': '"password": "[REDACTED:assignment]"',
+        "token = $TOKEN": "token = $TOKEN",
+        "password: <your password>": "password: <your password>",
+        "commit 3f786850e387550fdab836ed7e6dc881de23001b": None,
+        "id 123e4567-e89b-12d3-a456-426614174000": None,
+        "the sk-reviewer skill": None,
+        "Bearer x": None,
+        "Basic authentication": None,
+        "output tokens: 1234567": None,
+        "tokens: number": None,
+        "tokenUsage: TokenUsage": None,
+        "token: string": None,
+        "inputTokens: turn.inputTokens": None,
+        "GITHUB_TOKEN=abc123def456": "GITHUB_TOKEN=[REDACTED:assignment]",
+        "client_secret: 'pa$$w0rd!'": "client_secret: '[REDACTED:assignment]'",
+    }
+    for text, want in kept.items():
+        once = sr.redact(text)
+        check(f"redact {text!r}", once, want or text)
+        check(f"redact twice {text!r}", sr.redact(once), once)
+
+
+def test_secrets(root):
+    path = build_secrets(root / "E")
+    data = sr.analyze_session(path)
+    check("E redactions", data["redactions"],
+          {"private-key": 1, "bearer": 1, "openai-key": 1, "email": 1, "assignment": 1})
+    check("E note", data["notes"][-1],
+          "redacted 5 values: 1 assignment, 1 bearer, 1 email, 1 openai-key, 1 private-key")
+    out = root / "E" / "out" / "sessE.report.html"
+    proc = subprocess.run([sys.executable, str(HERE / "session_report.py"), str(path), "-o", str(out),
+                           "--summary"], capture_output=True, text=True, cwd=str(root))
+    check("E exit", proc.returncode, 0)
+    outputs = {"report": out.read_text(encoding="utf-8"),
+               "summary": (out.parent / "sessE.summary.json").read_text(encoding="utf-8"),
+               "printed": proc.stdout}
+    for name, text in outputs.items():
+        leaks = [v[:8] for v in PLANTED if v[:8] in text]
+        check(f"E {name} leaks", leaks, [])
+    check("E home shortened", "~/proj" in outputs["report"], True)
+    check("E files relative", "src/app.ts" in sr.analyze_session(path)["files_all"], True)
+    check("E redacted shown", "[REDACTED:bearer]" in outputs["report"], True)
+    # A secret that bypasses the transcript (here, in the log's file name) is refused.
+    token = "ghp_" + "Q7" * 18
+    bad = path.with_name(f"sessE-{token}.jsonl")
+    bad.write_text(path.read_text(encoding="utf-8"), encoding="utf-8")
+    bad_dir = root / "E" / "refused"
+    proc = subprocess.run([sys.executable, str(HERE / "session_report.py"), str(bad),
+                           "--out-dir", str(bad_dir)], capture_output=True, text=True, cwd=str(root))
+    check("E refused exit", proc.returncode, 1)
+    check("E refused names kind", "github-token in report section 'header'" in proc.stderr, True)
+    check("E refused hides value", token[:8] in proc.stderr + proc.stdout, False)
+    check("E refused writes nothing", list(bad_dir.glob("*")) if bad_dir.exists() else [], [])
+    a, _ = build_pipeline(root / "A2", with_meta=True, with_markers=True, extra_gate=False)
+    check("A no redaction note",
+          [n for n in sr.analyze_session(a)["notes"] if n.startswith("redacted")], [])
 
 
 def test_skills(root):
@@ -348,7 +468,7 @@ def main():
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         for test in (test_pipeline, test_fallbacks, test_senior_implementer, test_no_agents,
-                     test_skills):
+                     test_skills, test_redaction, test_secrets):
             try:
                 test(root)
             except Exception as e:  # noqa: BLE001 - report and keep going

@@ -138,7 +138,8 @@ gate, escalated or aborted. Failed runs teach the most. The orchestrator writes 
   per finding, with a root cause and a recommended change to an input);
 - your answer at each gate (a "revise" or "stop" is a failed review);
 - every fix-loop round, stall and escalation;
-- the session report it generates for the run.
+- the session report it generates for the run (secrets, emails and home paths are
+  redacted, so it is safe to commit).
 
 Recommendations always change an input (a standard, the profile, an OpenSpec rule, an agent
 instruction, the use-case template), never "be more careful".

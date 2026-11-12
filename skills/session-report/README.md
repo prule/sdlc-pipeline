@@ -158,6 +158,36 @@ run, then the evidence. Diagnostics are collapsed until you open them.
 | **Files touched** *(collapsed)* | Every project file read, written or edited across the run, including through shell commands, relative to the project root. Claude Code's own files (tool results, transcripts, the scratchpad) are left out. |
 | **Activity feed** *(collapsed)* | Chronological, filterable stream: prompts, decisions, tool calls, agent results, thinking. |
 
+## Safe to commit
+
+Reports are committed, so the script removes secrets and personal data as it reads
+each transcript (main and subagents), before any text is shortened or rendered:
+
+- **Secrets** become `[REDACTED:<kind>]`: `private-key` blocks, `aws-key`,
+  `github-token`, `gitlab-token`, `slack-token`, `stripe-key`, `anthropic-key`,
+  `openai-key`, `google-key`, `npm-token`, `jwt`, `bearer` and `basic` auth tokens,
+  `url-password` (`scheme://user:<password>@`), and `assignment`: a value given to a
+  name ending in secret, token, password, api key, access key, private key or
+  credential (`export X_SECRET_KEY=…`, `"password": "…"`, `GITHUB_TOKEN=…`). Names,
+  auth schemes and URL users stay. Values that are references (`$TOKEN`,
+  `<your password>`), plain numbers or plain words (`tokens: number`) stay.
+- **Email addresses** become `[REDACTED:email]`.
+- **Home folders** (`/home/<user>`, `/Users/<user>`, `C:\Users\<user>`) become `~`
+  in every output, including the header's working directory.
+
+This covers the HTML report, the summary file, `--summary` and `--compare`. The run
+adds a note such as `redacted 4 values: 1 bearer, 3 email` (counts only, never
+values) to the printed lines, the report's notes and the summary's `notes`.
+
+Before writing, the script scans the finished report and summary again. If a secret
+pattern still matches (a code path that skipped redaction, or a secret in the log's
+file name), it writes neither file, prints `refusing to write report: <kind> in
+<section>` and exits 1. Don't edit around it: fix the cause.
+
+**Not covered:** a secret with no recognisable shape, such as a bare password typed
+into a prompt with no label. If a session handled credentials, read the report
+before committing it.
+
 ## Subagents are included
 
 The multi-agent pipeline does most of its real work *inside* subagents

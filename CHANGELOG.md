@@ -3,6 +3,32 @@
 All notable changes to this plugin. Versions follow [semver](https://semver.org/); before 1.0, a
 change that requires projects to edit their profile bumps the minor version.
 
+## [0.10.0] — 2026-11-12
+
+Session reports are safe to commit: secrets and personal data are redacted before anything is
+written. The report also shows which skills were used where. Host projects need do nothing.
+Reports committed before this release are not rewritten; if you are worried about one, and its
+transcript is still under `~/.claude/projects`, regenerate it.
+
+### Added
+- `session-report` redacts secrets as it reads each transcript, before any text is shortened:
+  private keys, common vendor API keys and tokens, JWTs, bearer and basic auth tokens, passwords
+  in URLs, and values assigned to secret, token, password or key names. Each becomes
+  `[REDACTED:<kind>]`. Email addresses become `[REDACTED:email]`, and home folders become `~`.
+  This covers the HTML report, the summary file, `--summary` and `--compare`.
+- A note such as `redacted 4 values: 1 bearer, 3 email` in the printed lines, the report's notes
+  and the summary's `notes`. Counts only, never values.
+- A final check on the finished report and summary. If a secret pattern still matches, the script
+  writes neither file, names the kind and the section, and exits 1.
+- A **Skills used** section in the report: every skill invoked and who invoked it (you by slash
+  command, the orchestrator, or the agent run that called it). The summary file has the same list
+  under `skills`.
+
+### Changed
+- `session-report` tells the agent never to work around a refused write.
+- `README.md`, `docs/pipeline.md`, `docs/evaluating-the-pipeline.md` and the skill's README say
+  the report is redacted, and what is not covered: a secret with no recognisable shape.
+
 ## [0.9.0] — 2026-11-03
 
 An optional static-analysis scan in QA, such as SonarQube through a `sonar-check` wrapper. It is

@@ -71,7 +71,134 @@ def parse_ts(s):
         return None
 
 
-def load_events(path):
+# --------------------------------------------------------------------------- #
+# Redaction — reports are committed, so secrets and emails are removed as each
+# transcript is read, before any text is truncated or rendered.
+# --------------------------------------------------------------------------- #
+
+_TOK = r"[A-Za-z0-9._~+/=-]"
+# A secret name ends with its keyword (API_TOKEN, client_secret, SECRET_KEY), so code
+# such as "tokens: number" or "tokenUsage: TokenUsage" is left alone.
+_SECRET_NAME = (r"(?:secret|token|passwd|password|api[_-]?key|apikey|access[_-]?key|"
+                r"private[_-]?key|credentials?)(?:[_-]?key)?(?![\w-])")
+# (kind, triggers, pattern, flags, check): most specific first. A pattern runs only on
+# text whose lowercase holds one of its triggers (a cheap prefilter). A (?P<keep>…)
+# prefix survives; the rest becomes [REDACTED:kind]. check=False rows are left out of
+# the final output scan. An assignment value needs a letter and a digit or symbol, so
+# counts ("token: 1234567") and type names ("token: string") survive.
+REDACT_PATTERNS = [(k, t, re.compile(p, f), c) for k, t, p, f, c in [
+    ("private-key", ("private key",), r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----"
+                    r"(?:.*?-----END [A-Z0-9 ]*PRIVATE KEY-----|.*\Z)", re.S, True),
+    ("aws-key", ("akia", "asia"), r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b", 0, True),
+    ("github-token", ("ghp_", "gho_", "ghu_", "ghs_", "ghr_", "github_pat_"),
+     r"\bgh[pousr]_[A-Za-z0-9]{36,}\b|\bgithub_pat_[A-Za-z0-9_]{22,}", 0, True),
+    ("gitlab-token", ("glpat-",), r"\bglpat-[A-Za-z0-9_-]{20,}", 0, True),
+    ("slack-token", ("xoxa-", "xoxb-", "xoxp-", "xoxr-", "xoxs-"), r"\bxox[abprs]-[A-Za-z0-9-]{10,}", 0, True),
+    ("stripe-key", ("k_live_", "k_test_"), r"\b[sr]k_(?:live|test)_[A-Za-z0-9]{16,}", 0, True),
+    ("anthropic-key", ("sk-ant-",), r"\bsk-ant-[A-Za-z0-9_-]{20,}", 0, True),
+    ("openai-key", ("sk-",), r"\bsk-(?:proj-)?[A-Za-z0-9_-]{20,}", 0, True),
+    ("google-key", ("aiza",), r"\bAIza[0-9A-Za-z_-]{35}", 0, True),
+    ("npm-token", ("npm_",), r"\bnpm_[A-Za-z0-9]{36}\b", 0, True),
+    ("jwt", (".eyj",), r"\beyJ[\w-]{5,}\.eyJ[\w-]{5,}\.[\w-]+", 0, True),
+    # In an Authorization header any token counts; elsewhere it must hold a digit, so
+    # prose such as "Basic authentication" survives.
+    ("bearer", ("bearer",), rf"(?P<keep>Authorization:\s*Bearer\s+){_TOK}{{8,}}", re.I, True),
+    ("basic", ("basic",), rf"(?P<keep>Authorization:\s*Basic\s+){_TOK}{{8,}}", re.I, True),
+    ("bearer", ("bearer",), rf"(?P<keep>\bBearer\s+)(?={_TOK}*\d){_TOK}{{8,}}", 0, True),
+    ("basic", ("basic",), rf"(?P<keep>\bBasic\s+)(?={_TOK}*\d){_TOK}{{8,}}", 0, True),
+    ("url-password", ("://",), r"(?P<keep>(?<![a-z0-9+.-])[a-z][a-z0-9+.-]*://[^\s:/@]+:)[^\s@/]+(?=@)",
+     re.I, True),
+    ("assignment", ("secret", "token", "passw", "apikey", "api_key", "api-key", "accesskey",
+                    "access_key", "access-key", "privatekey", "private_key", "private-key",
+                    "credential"),
+     rf"(?P<keep>{_SECRET_NAME}[\"']?\s*[:=]\s*[\"']?)"
+     r"(?![$<{]|\[REDACTED)(?=[^\s\"'`,;]*[A-Za-z])(?=[^\s\"'`,;]*[\d!#$%^&*+/=@~?])"
+     r"[^\s\"'`,;]{6,}", re.I, True),
+    ("email", ("@",), r"(?<![A-Za-z0-9._%+-])[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b", 0, False),
+]]
+
+
+# Longest first, so "sk-ant-" is found as itself rather than as "sk-".
+_TRIGGERS = re.compile("|".join(sorted({re.escape(t) for _, ts, _, _ in REDACT_PATTERNS
+                                        for t in ts}, key=len, reverse=True)))
+
+
+def _hits(text, check_only=False):
+    """The patterns whose triggers appear in text."""
+    found = set(_TRIGGERS.findall(text.lower()))
+    if not found:
+        return []
+    return [(k, rx) for k, trig, rx, c in REDACT_PATTERNS
+            if (c or not check_only) and found.intersection(trig)]
+
+
+def redact(text, counts=None):
+    """Replace every recognisable secret and email in text with [REDACTED:<kind>]."""
+    for kind, rx in _hits(text):
+        def sub(m, kind=kind):
+            if counts is not None:
+                counts[kind] += 1
+            return (m.groupdict().get("keep") or "") + f"[REDACTED:{kind}]"
+        text = rx.sub(sub, text)
+    return text
+
+
+def redact_obj(o, counts=None):
+    """redact() every string in a parsed JSON value. Thinking signatures and base64
+    images are never rendered, so they are skipped for speed."""
+    if isinstance(o, str):
+        return redact(o, counts)
+    if isinstance(o, list):
+        return [redact_obj(x, counts) for x in o]
+    if isinstance(o, dict):
+        if o.get("type") == "base64":
+            return o
+        return {k: v if k == "signature" else redact_obj(v, counts) for k, v in o.items()}
+    return o
+
+
+def redaction_note(counts):
+    if not counts:
+        return None
+    kinds = ", ".join(f"{n} {k}" for k, n in sorted(counts.items()))
+    return f"redacted {sum(counts.values())} values: {kinds}"
+
+
+HOME_RE = re.compile(r"(?:/home|/Users)/[^/\s\"'<>`…]+"
+                     r"|\b[A-Za-z]:(?:\\\\|\\)Users(?:\\\\|\\)[^\\\s\"'<>`…]+")
+
+
+def strip_home(text):
+    """Shorten every home folder in finished output to ~ (also mid-path, and where
+    truncation cut the user name short)."""
+    return HOME_RE.sub("~", text)
+
+
+class UnsafeReport(Exception):
+    """A secret pattern still matches the finished output."""
+
+
+def leak_check(html_text=None, summary=None):
+    """Scan finished outputs; raise UnsafeReport naming the kind and section, never
+    the value. Emails are skipped: any left are the tool's own fixed strings."""
+    hits = []
+    if html_text is not None:
+        plain = html.unescape(html_text)
+        heads = [(m.start(), re.sub(r"<[^>]+>", "", m.group(1)))
+                 for m in re.finditer(r"<h2>(.*?)</h2>", plain, re.S)]
+        for kind, rx in _hits(plain, check_only=True):
+            for m in rx.finditer(plain):
+                sec = next((h for pos, h in reversed(heads) if pos < m.start()), "header")
+                hits.append(f"{kind} in report section '{sec}'")
+    for key, value in (summary or {}).items():
+        text = json.dumps(value, ensure_ascii=False)
+        hits += [f"{kind} in summary field '{key}'"
+                 for kind, rx in _hits(text, check_only=True) if rx.search(text)]
+    if hits:
+        raise UnsafeReport("refusing to write report: " + "; ".join(dict.fromkeys(hits)))
+
+
+def load_events(path, counts=None):
     events = []
     with open(path, "r", encoding="utf-8") as fh:
         for i, line in enumerate(fh, 1):
@@ -79,9 +206,15 @@ def load_events(path):
             if not line:
                 continue
             try:
-                events.append(json.loads(line))
+                ev = json.loads(line)
             except json.JSONDecodeError:
                 sys.stderr.write(f"warning: skipping malformed line {i}\n")
+                continue
+            if isinstance(ev, dict) and ev.get("type") not in ("user", "assistant"):
+                # Only top-level fields of other events are read, so their bulky nested
+                # payloads (API request blobs, file snapshots) are dropped, not redacted.
+                ev = {k: v for k, v in ev.items() if not isinstance(v, (dict, list))}
+            events.append(redact_obj(ev, counts))
     return events
 
 
@@ -474,7 +607,7 @@ def transcript_stats(events):
     }
 
 
-def load_subagents(session_path):
+def load_subagents(session_path, counts=None):
     """Parse every subagents/agent-*.jsonl beside the main log, with the
     agent-*.meta.json Claude Code writes beside it (toolUseId, agentType…) when
     there is one. Returns {agentId: stats} keyed by the transcript's agentId."""
@@ -484,7 +617,7 @@ def load_subagents(session_path):
     out = {}
     for f in sorted(sub_dir.glob("agent-*.jsonl")):
         aid = f.stem[len("agent-"):]
-        events = load_events(f)
+        events = load_events(f, counts)
         if not events:
             continue
         try:
@@ -1210,11 +1343,12 @@ def skill_uses(data, events):
 
 def analyze_session(path, project_root=None, no_subagents=False):
     """Everything the report and the summary need, from one session log."""
-    events = load_events(path)
+    counts = Counter()
+    events = load_events(path, counts)
     if not events:
         raise ValueError(f"no parseable events in {path}")
     data = analyze(events)
-    subs = {} if no_subagents else load_subagents(path)
+    subs = {} if no_subagents else load_subagents(path, counts)
     if subs:
         link_subagents(data, subs)
     else:
@@ -1231,6 +1365,10 @@ def analyze_session(path, project_root=None, no_subagents=False):
     data["use_case"], data["change"] = find_ids(data)
     data["ctx"] = build_context(data, project_root=project_root)
     data["skills"] = skill_uses(data, events)
+    data["redactions"] = dict(counts)
+    note = redaction_note(counts)
+    if note:
+        data["notes"].append(note)
     return data
 
 
@@ -2334,12 +2472,15 @@ def summary_path(out):
 
 
 def write_outputs(data, source_name, out, compact):
-    """Write the HTML report and the summary file beside it; return the summary."""
+    """Write the HTML report and the summary file beside it; return the summary.
+    Both are finished and checked in memory first, so a leak writes neither."""
+    page = strip_home(render(data, source_name, compact))
+    text = strip_home(json.dumps(run_summary(data, out), ensure_ascii=False, indent=2))
+    summary = json.loads(text)
+    leak_check(page, summary)
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(render(data, source_name, compact), encoding="utf-8")
-    summary = run_summary(data, out)
-    summary_path(out).write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n",
-                                 encoding="utf-8")
+    out.write_text(page, encoding="utf-8")
+    summary_path(out).write_text(text + "\n", encoding="utf-8")
     return summary
 
 
@@ -2391,9 +2532,13 @@ def main():
         m_a, m_b = session_metrics(src), session_metrics(other)
         out = (Path(args.output) if args.output else
                out_dir / f"compare-{src.stem}-vs-{other.stem}.report.html")
+        page = strip_home(render_compare(m_a, m_b, args.label_a, args.label_b))
+        try:
+            leak_check(page)
+        except UnsafeReport as e:
+            sys.exit(str(e))
         out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text(render_compare(m_a, m_b, args.label_a, args.label_b),
-                       encoding="utf-8")
+        out.write_text(page, encoding="utf-8")
         print(f"compared {args.label_a} vs {args.label_b}")
         print(f"wrote {out}")
         if args.open:
@@ -2406,7 +2551,10 @@ def main():
         ap.error(str(e))
     # default: keep reports with the project, under --out-dir
     out = Path(args.output) if args.output else out_dir / (src.stem + ".report.html")
-    summary = write_outputs(data, src.name, out, args.compact)
+    try:
+        summary = write_outputs(data, src.name, out, args.compact)
+    except UnsafeReport as e:
+        sys.exit(str(e))
 
     if args.summary:
         print(json.dumps(summary, ensure_ascii=False, indent=2))
