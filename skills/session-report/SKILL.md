@@ -1,6 +1,6 @@
 ---
 name: session-report
-description: Turn a Claude Code session log (.jsonl) into a self-contained HTML report — an agent timeline (Gantt), a subagent value/efficiency table, which review gates caught issues, an errors & friction panel, context-doc ingestion, and a filterable activity feed. Use when the user wants to analyse a session, see what agents ran when and how long they took, review pipeline efficiency, compare two runs, or find where things went wrong.
+description: Turn a Claude Code session log (.jsonl) into a self-contained HTML report — an agent timeline (Gantt), a subagent value/efficiency table, which review gates caught issues, which skills were used where, an errors & friction panel, context-doc ingestion, and a filterable activity feed. Use when the user wants to analyse a session, see what agents ran when and how long they took, review pipeline efficiency, compare two runs, or find where things went wrong.
 allowed-tools: Bash(python3:*), Bash(ls:*), Read, Glob
 license: MIT
 ---
@@ -59,7 +59,9 @@ ls -lt ~/.claude/projects/$(pwd | sed 's#[/.]#-#g')/*.jsonl | head
    the cards (time split, fix loops, findings, tokens), the **Findings** section
    (every gate run's verdict, one row per finding with its status history, and
    each fix loop's cost) and the **Agents** table (per-agent and per-run cost).
-   Those show whether each agent and gate is pulling its weight.
+   Those show whether each agent and gate is pulling its weight. If they ask
+   which skills ran, or where, point them at **Skills used** (by you, the
+   orchestrator, or each agent).
 
 ## Measuring whether domain & standards context helps
 

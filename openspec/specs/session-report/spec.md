@@ -117,7 +117,7 @@ The report SHALL show input, cache-write, cache-read and output tokens for each 
 - **THEN** the junior-dev row shows 3,000 output tokens, alongside its input and cache token totals
 
 ### Requirement: Report is laid out for tuning
-The report SHALL present, in order: the run's identity and totals; the run as a timeline with fix loops marked; the findings table; the agent table; the context panel. The errors, tool usage, files and activity feed sections SHALL be collapsed by default. When the transcript names a use case file or an OpenSpec change, the header SHALL show them.
+The report SHALL present, in order: the run's identity and totals; the run as a timeline with fix loops marked; the findings table; the agent table; the context panel. The errors, tool usage, skills, files and activity feed sections SHALL be collapsed by default. When the transcript names a use case file or an OpenSpec change, the header SHALL show them.
 
 #### Scenario: Pipeline run header
 - **WHEN** the session ran `build-use-case` on `use-cases/UC-0.1-app-launches.md` and created change `uc-0-1-open-logbook`
@@ -125,7 +125,7 @@ The report SHALL present, in order: the run's identity and totals; the run as a 
 
 #### Scenario: Diagnostics collapsed
 - **WHEN** the report is opened
-- **THEN** the errors, tool usage, files and activity feed sections are closed until the reader opens them
+- **THEN** the errors, tool usage, skills, files and activity feed sections are closed until the reader opens them
 
 ### Requirement: A senior-dev implement run is not a gate run
 The report SHALL treat a `senior-dev` run whose Agent description starts with `Implement` as a
@@ -148,3 +148,18 @@ compute its catch rate over its gate runs only, and SHALL mark it as a gate.
 #### Scenario: Senior dev with one implement run and one review run
 - **WHEN** `senior-dev` has an implement run and a code-review run that fixed two issues in place
 - **THEN** the per-agent table shows `senior-dev` as a gate with "caught 1/1", not "caught 1/2"
+
+### Requirement: Report shows which skills were used where
+The report SHALL list every skill invoked in the session, with where it was invoked: `you` for a
+skill typed as a slash command, `orchestrator` for a Skill tool call in the top-level session, or
+the agent type for a Skill tool call inside a subagent run. Built-in slash commands SHALL not be
+listed. The summary file SHALL hold the same list under `skills`, one entry per invocation in time
+order, with the agent run's id for subagent calls.
+
+#### Scenario: Skills across the pipeline
+- **WHEN** you type `/sdlc-pipeline:build-use-case`, the architect calls `opsx:propose`, and the orchestrator calls `pr`
+- **THEN** the Skills used section shows `sdlc-pipeline:build-use-case` used by you, `opsx:propose` used by architect, and `pr` used by orchestrator
+
+#### Scenario: Built-in command
+- **WHEN** you type `/clear`
+- **THEN** it is not listed as a skill
