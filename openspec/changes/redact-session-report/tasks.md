@@ -24,7 +24,7 @@
 - [x] 4.1 Time the generator on the largest local session log, before and after the change. Verify the run time is no more than about 2× the old time, and record both numbers in the PR. (Measured 0.24 s → 0.65 s on 21 MB, about 2.7×; accepted by the user, see design.md Risks.)
 - [x] 4.2 Regenerate reports for three real sessions under `~/.claude/projects`. Verify each one writes, prints a sensible redaction note, and has no `/home/` or `/Users/` path left in either output.
 - [x] 4.3 Run `python3 scripts/validate.py` and `claude plugin validate .`, and verify both pass.
-- [ ] 4.4 In a host project, run `build-use-case` once with `claude --plugin-dir <this repo>`. During the run, paste a fake token in a prompt (for example `ghp_` followed by 36 letters). Verify that the generated report and summary show `[REDACTED:github-token]`, that the retrospective's front matter still fills from the summary, and that Gate 2 and the commit reminder are unchanged.
+- [x] 4.4 In a host project, run `build-use-case` once with `claude --plugin-dir <this repo>`. During the run, paste a fake token in a prompt (for example `ghp_` followed by 36 letters). Verify that the generated report and summary show `[REDACTED:github-token]`, that the retrospective's front matter still fills from the summary, and that Gate 2 and the commit reminder are unchanged.
 
 ## Workflow follow-up
 
