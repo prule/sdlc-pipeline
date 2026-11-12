@@ -52,7 +52,8 @@ by comparing two runs — see [§6](#6-comparative-evaluation-the-only-way-to-pr
 ## 2. The one tool you need
 
 Everything here is driven by the **`session-report`** skill, which turns a
-session log into a self-contained HTML report. Full tool docs:
+session log into a self-contained HTML report, with secrets, emails and home paths
+redacted so it is safe to commit. Full tool docs:
 [`skills/session-report/README.md`](../skills/session-report/README.md).
 
 Session logs live at:

@@ -27,7 +27,7 @@ stack rules in a short **profile** file (`.claude/sdlc-profile.md`).
 | Skill | `/sdlc-pipeline:plan-use-cases` | Plans the product's use cases in `BACKLOG.md`: the MVP first, then one increment at a time. Entries are ticked as they're built. |
 | Skill | `/sdlc-pipeline:write-use-case <idea \| next>` | Interactively drafts a business use case from the domain docs (or the next backlog entry) and saves it to `use-cases/`. |
 | Skill | `/sdlc-pipeline:build-use-case [--senior \| --junior] <path>` | Runs the whole pipeline for one use case, with the two gates, fix loops, budget caps and the retrospective. The flag picks who implements for this run. |
-| Skill | `session-report` | Turns a session log into an HTML report (agent timeline, gate value, errors, context use). Ask *"analyse this session"*. |
+| Skill | `session-report` | Turns a session log into an HTML report (agent timeline, gate value, errors, context use), with secrets and personal data redacted so it is safe to commit. Ask *"analyse this session"*. |
 | Agent | `architect` | Use case → OpenSpec change (proposal, design, spec delta, tasks). |
 | Agent | `spec-reviewer` | Read-only plan gate: standards conformance + design soundness. |
 | Agent | `junior-dev` | Implements `tasks.md` and stays inside the plan. The default implementer. |

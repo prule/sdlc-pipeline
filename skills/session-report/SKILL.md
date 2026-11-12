@@ -53,7 +53,10 @@ ls -lt ~/.claude/projects/$(pwd | sed 's#[/.]#-#g')/*.jsonl | head
 
 2. Give the user the report path (offer `--open` to open it in a browser) and
    relay the printed summary line and any notes. The report and its summary file
-   are meant to be committed with the change they describe.
+   are meant to be committed with the change they describe. The script redacts
+   secrets and personal data before writing. If it refuses to write because a
+   secret survived, tell the user which section it named; never work around it by
+   editing the output or the script.
 
 3. If the user is drawing conclusions about pipeline efficiency, point them at
    the cards (time split, fix loops, findings, tokens), the **Findings** section
